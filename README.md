@@ -3,6 +3,11 @@
 Cột **Khoa** trong ClickGUI: `khoa-auto-miner`, `khoa-item-collector`, `khoa-litematica-builder`.
 Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa chạy tại một thời điểm.
 
+## Mới ở 2.4.0 (Litematica Builder)
+- **temp-support**: block lơ lửng không có chỗ tựa thì bot tự đặt block tựa tạm (dây block tạm nối từ chỗ đã có tựa tới đích, tối đa 5 bước, chỉ đặt ở ô schematic để trống), đặt block thật rồi đập block tạm. Không còn bỏ cả layer vì "chờ điểm tựa".
+- **break-wrong-blocks**: chỗ cần đặt đang có block sai loại thì đập đi rồi đặt đúng (không đập rương/lò/block chứa đồ, bedrock, chỗ sát dung nham).
+- **Chọn mục tiêu thông minh hơn (nhanh hơn)**: đặt hết những chỗ trong tầm với trước rồi mới đi, thấp lên cao, gần nhất, giữ mục tiêu đang làm dở (không chạy qua chạy lại). `place-delay` mặc định 5 tick, `place-jitter` 2 (setting cũ đã lưu thì tự chỉnh lại).
+
 ## Sửa lỗi 2.3.2 (Litematica Builder)
 - **Đổ lava/nước sai chỗ, đổ trước khi có block chặn** (`fluid-walls-first`, mặc định bật): chỉ đổ một ô nước/lava khi mọi block đặc kề nó (6 hướng) trong schematic đã được đặt xong. Block chặn còn thiếu được đặt TRƯỚC, kể cả nằm ngoài layer Litematica đang hiển thị. Ô nào có block chặn không đặt được thì không đổ.
 - **Đứng xa / đặt xuyên tường nhìn như hack**: bot chọn điểm ngắm có tia nhìn thật trúng đúng mặt block tựa (không bị vật cản che), xoay camera tới đó, rồi chỉ bấm khi crosshair thật đang chỉ đúng chỗ và bấm đúng điểm crosshair chỉ. Điểm bấm lệch ngẫu nhiên nhẹ trên mặt block. Xô nước/lava cũng chỉ đổ khi crosshair chỉ đúng ô cần đổ.

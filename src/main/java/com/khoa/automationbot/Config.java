@@ -75,8 +75,10 @@ public class Config {
     public boolean autoPillar = true;
     public boolean autoBridge = true;       // đặt block liên tục (cầu/cột) tới chỗ không đi bộ tới được
     public boolean cleanScaffold = true;    // đập block tạm sau khi xong
-    public int placeDelay = 8;              // tick giữa 2 lần đặt block (server có anti-cheat: đặt chậm)
-    public int placeJitter = 3;             // ngẫu nhiên +- tick cho giống người
+    public boolean tempSupport = true;      // block lơ lửng không có tựa -> đặt block tựa tạm
+    public boolean breakWrong = true;       // block sai loại chiếm chỗ -> đập rồi đặt đúng
+    public int placeDelay = 5;              // tick giữa 2 lần đặt block (server có anti-cheat: đặt chậm)
+    public int placeJitter = 2;             // ngẫu nhiên +- tick cho giống người
     public double placeReach = 3.0;         // đứng cách chỗ đặt tối đa (mắt -> block), vanilla cho 4.5 nhưng bot hack hay đứng xa
     public boolean fluidWalls = true;       // chỉ đổ nước/lava khi block chặn xung quanh đã đặt xong
     public boolean placeFluids = true;      // đổ nước/lava theo schematic (cần xô)

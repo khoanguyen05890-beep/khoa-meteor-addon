@@ -71,7 +71,7 @@ public class KhoaLitematicaBuilder extends KhoaModule {
     private final Setting<Integer> placeDelay = sgGeneral.add(new IntSetting.Builder()
         .name("place-delay")
         .description("Số tick chờ giữa 2 lần đặt block (20 tick = 1 giây). Chơi server có anti-cheat thì để 8-15 hoặc cao hơn.")
-        .defaultValue(8)
+        .defaultValue(5)
         .min(1)
         .sliderRange(2, 30)
         .build());
@@ -79,9 +79,21 @@ public class KhoaLitematicaBuilder extends KhoaModule {
     private final Setting<Integer> placeJitter = sgGeneral.add(new IntSetting.Builder()
         .name("place-jitter")
         .description("Ngẫu nhiên +- số tick cho mỗi lần đặt để nhịp giống người hơn.")
-        .defaultValue(3)
+        .defaultValue(2)
         .min(0)
         .sliderRange(0, 10)
+        .build());
+
+    private final Setting<Boolean> tempSupport = sgGeneral.add(new BoolSetting.Builder()
+        .name("temp-support")
+        .description("Block lơ lửng không có chỗ tựa: tự đặt block tựa tạm (cobblestone/dirt) rồi đặt block thật, sau đó đập block tạm.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> breakWrong = sgGeneral.add(new BoolSetting.Builder()
+        .name("break-wrong-blocks")
+        .description("Chỗ cần đặt đang có block sai loại: đập đi rồi đặt đúng (không đập rương/lò/block có đồ bên trong, bedrock).")
+        .defaultValue(true)
         .build());
 
     private final Setting<Double> placeReach = sgGeneral.add(new DoubleSetting.Builder()
@@ -267,6 +279,8 @@ public class KhoaLitematicaBuilder extends KhoaModule {
         c.placeDelay = placeDelay.get();
         c.placeJitter = placeJitter.get();
         c.placeReach = placeReach.get();
+        c.tempSupport = tempSupport.get();
+        c.breakWrong = breakWrong.get();
         c.fluidWalls = fluidWalls.get();
         c.autoBridge = autoBridge.get();
         c.cleanScaffold = cleanScaffold.get();

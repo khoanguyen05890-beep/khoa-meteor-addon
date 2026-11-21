@@ -91,7 +91,7 @@ public final class LitematicaBuilder extends Task {
     private final Map<Long, Integer> bridgeTries = new HashMap<>();
 
     // đổ nước / lava / waterlogged bằng xô
-    private enum Act { PLACE, FLUID, WATERLOG }
+    private enum Act { PLACE, FLUID, WATERLOG, BREAK }
     private final Map<Long, Integer> tries = new HashMap<>();
     private BlockPos refillSrc;
     private long refillBlockedUntil;
@@ -104,6 +104,8 @@ public final class LitematicaBuilder extends Task {
         Aim(BlockPos sup, Direction click, Vec3d point) { this.sup = sup; this.click = click; this.point = point; }
     }
     private Aim aim;
+    private BlockPos stickyTgt;       // giữ mục tiêu cũ để không nhảy qua nhảy lại
+    private int breakTicks, unsupportedWait;
     private BlockPos aimFor;
     private int aimWait, aimMiss;
     private final Random rng = new Random();
@@ -648,12 +650,13 @@ public final class LitematicaBuilder extends Task {
         Aim best = null;
         double bestScore = Double.MAX_VALUE;
         for (Direction d : Direction.values()) {
-            BlockPos sup = act == Act.WATERLOG ? tgt : tgt.offset(d);
-            if (act != Act.WATERLOG) {
+            boolean onSelf = act == Act.WATERLOG || act == Act.BREAK;
+            BlockPos sup = onSelf ? tgt : tgt.offset(d);
+            if (!onSelf) {
                 BlockState ss = w.getBlockState(sup);
                 if (ss.isAir() || ss.isReplaceable() || !ss.getFluidState().isEmpty()) continue;
             }
-            Direction click = act == Act.WATERLOG ? d : d.getOpposite();
+            Direction click = onSelf ? d : d.getOpposite();
             for (double[] o : offs) {
                 Vec3d base = Vec3d.ofCenter(sup).add(click.getOffsetX() * 0.5, click.getOffsetY() * 0.5, click.getOffsetZ() * 0.5);
                 Vec3d pt;
@@ -686,6 +689,77 @@ public final class LitematicaBuilder extends Task {
         Vec3d end = e.add(p.getRotationVec(1.0f).multiply(Config.get().placeReach + 1.0));
         return mc.world.raycast(new RaycastContext(e, end, RaycastContext.ShapeType.OUTLINE,
                 RaycastContext.FluidHandling.NONE, p));
+    }
+
+    /** Block sai loại đang chiếm chỗ: được phép đập? (không đập rương/lò..., bedrock, chỗ sát dung nham). */
+    private boolean canBreak(ClientWorld w, BlockPos pos) {
+        BlockState st = w.getBlockState(pos);
+        if (st.isAir() || !st.getFluidState().isEmpty()) return false;
+        if (st.getHardness(w, pos) < 0) return false;
+        if (w.getBlockEntity(pos) != null) return false;
+        return Path.safeToDig(w, pos);
+    }
+
+    /** Đập block sai loại (nhìn đúng mặt, tia nhìn thật phải trúng block đó). */
+    private void breakWrong(MinecraftClient mc, BlockPos tgt) {
+        ClientPlayerEntity p = mc.player;
+        ClientWorld w = mc.world;
+        Config cfg = Config.get();
+        if (aim == null || !tgt.equals(aimFor)) { aim = findAim(mc, tgt, Act.BREAK); aimFor = tgt; aimWait = 0; aimMiss = 0; breakTicks = 0; }
+        if (aim == null) {
+            status = t("Không có góc nhìn rõ để đập - đổi chỗ...", "No clear line to break - repositioning...");
+            if (++aimWait > 40) { bad.add(tgt.asLong()); pending.remove(tgt); aimFor = null; }
+            return;
+        }
+        BlockState st = w.getBlockState(tgt);
+        if (!Tools.selectTool(mc, st, true)) {
+            bad.add(tgt.asLong());
+            pending.remove(tgt);
+            status = t("Thiếu công cụ để đập ", "Missing tool to break ") + st.getBlock().getName().getString();
+            return;
+        }
+        status = t("Đập block sai loại: ", "Breaking wrong block: ") + st.getBlock().getName().getString();
+        boolean ok = Motion.lookAt(p, aim.point, cfg.turnSpeed());
+        if (!ok) return;
+        BlockHitResult real = crosshair(mc);
+        if (real.getType() != HitResult.Type.BLOCK || !real.getBlockPos().equals(tgt)) {
+            if (++aimMiss > 12) { aim = null; aimFor = null; }
+            return;
+        }
+        mc.interactionManager.updateBlockBreakingProgress(tgt, real.getSide());
+        p.swingHand(Hand.MAIN_HAND);
+        if (++breakTicks > 300) { bad.add(tgt.asLong()); pending.remove(tgt); aim = null; aimFor = null; }
+    }
+
+    /**
+     * Block lơ lửng không có điểm tựa: tìm ô trống gần nhất (schematic để trống) đã có điểm tựa, nối được tới block đó
+     * qua các ô trống (BFS tối đa 5 bước). Đặt ô đó trước; lặp lại thì tạo thành dây block tựa tạm tới đích.
+     */
+    private BlockPos tempSupportCell(MinecraftClient mc, BlockPos target) {
+        ClientWorld w = mc.world;
+        BlockPos feet = mc.player.getBlockPos();
+        Deque<BlockPos> dq = new ArrayDeque<>();
+        Map<Long, Integer> depth = new HashMap<>();
+        dq.add(target);
+        depth.put(target.asLong(), 0);
+        while (!dq.isEmpty()) {
+            BlockPos u = dq.poll();
+            int du = depth.get(u.asLong());
+            if (du >= 5) continue;
+            for (Direction d : Direction.values()) {
+                BlockPos n = u.offset(d);
+                if (depth.containsKey(n.asLong())) continue;
+                if (!Tools.loaded(w, n.getX(), n.getZ())) continue;
+                BlockState ns = w.getBlockState(n);
+                if (!ns.isReplaceable() || !ns.getFluidState().isEmpty()) continue;
+                if (!schem.getBlockState(n).isAir()) continue;               // chỗ công trình cần block: không dùng làm block tạm
+                depth.put(n.asLong(), du + 1);
+                if (n.equals(feet) || n.equals(feet.up())) continue;        // không đặt vào chỗ đang đứng
+                if (supportFace(w, n) != null) return n;
+                dq.add(n);
+            }
+        }
+        return null;
     }
 
     private Direction supportFace(ClientWorld w, BlockPos pos) {
@@ -779,7 +853,8 @@ public final class LitematicaBuilder extends Task {
 
         if (startNextSupply(mc)) return;        // vật liệu của layer còn thiếu -> đi lấy trước
 
-        // Chọn mục tiêu khả thi gần nhất
+        // Chọn mục tiêu: ưu tiên chỗ trong tầm với, thấp lên cao, gần nhất (không chạy lung tung);
+        // block lơ lửng không có điểm tựa thì tự đặt block tựa tạm; block sai chỗ thì đập đi đặt lại.
         BlockPos tgt = null;
         BlockState want = null;
         Direction face = null;
@@ -787,8 +862,13 @@ public final class LitematicaBuilder extends Task {
         Act act = Act.PLACE;
         Item actItem = null;
         BlockPos blockedScaf = null;
+        BlockPos unsupported = null;
+        boolean tempPlace = false;
+        double bestScore = Double.MAX_VALUE;
+        Vec3d eyeNow = p.getEyePos();
+        double nearSq = (cfg.placeReach + 0.5) * (cfg.placeReach + 0.5);
         int checked = 0;
-        for (int i = 0; i < pending.size() && checked < 150; i++) {
+        for (int i = 0; i < pending.size() && checked < 200; i++) {
             BlockPos pos = pending.get(i);
             if (bad.contains(pos.asLong())) { pending.remove(i--); continue; }
             BlockState ws = schem.getBlockState(pos);
@@ -800,10 +880,12 @@ public final class LitematicaBuilder extends Task {
                 if (!ws.getFluidState().isStill() || fluidOk(w, pos, ws)) { tries.remove(pos.asLong()); pending.remove(i--); continue; }
                 if (!cs.isReplaceable()) {
                     if (scaf.owns(pos)) { blockedScaf = pos; continue; }
-                    bad.add(pos.asLong()); pending.remove(i--); continue;
+                    if (cfg.breakWrong && canBreak(w, pos)) { a = Act.BREAK; it = null; }
+                    else { bad.add(pos.asLong()); pending.remove(i--); continue; }
+                } else {
+                    a = Act.FLUID;
+                    it = ws.getFluidState().isIn(FluidTags.LAVA) ? Items.LAVA_BUCKET : Items.WATER_BUCKET;
                 }
-                a = Act.FLUID;
-                it = ws.getFluidState().isIn(FluidTags.LAVA) ? Items.LAVA_BUCKET : Items.WATER_BUCKET;
             } else if (cs.getBlock() == ws.getBlock()) {                    // đã có block: chỉ còn thiếu nước (waterlogged)?
                 if (!cfg.placeFluids || !wantsWater(ws) || hasWater(cs)) { tries.remove(pos.asLong()); pending.remove(i--); continue; }
                 a = Act.WATERLOG;
@@ -811,18 +893,43 @@ public final class LitematicaBuilder extends Task {
             } else {
                 if (!cs.isReplaceable()) {
                     if (scaf.owns(pos)) { blockedScaf = pos; continue; }     // block tạm của mình đang chiếm chỗ -> đập sau
-                    bad.add(pos.asLong()); pending.remove(i--); continue;
+                    if (cfg.breakWrong && canBreak(w, pos)) { a = Act.BREAK; it = null; }   // block sai loại -> đập rồi đặt đúng
+                    else { bad.add(pos.asLong()); pending.remove(i--); continue; }
+                } else {
+                    it = ws.getBlock().asItem();
+                    if (it == Items.AIR) { bad.add(pos.asLong()); pending.remove(i--); continue; }
+                    a = Act.PLACE;
                 }
-                it = ws.getBlock().asItem();
-                if (it == Items.AIR) { bad.add(pos.asLong()); pending.remove(i--); continue; }
-                a = Act.PLACE;
             }
             checked++;
-            if (Tools.findItem(p, it) < 0) { missItem = it; continue; }
-            Direction d = a == Act.WATERLOG ? Direction.UP : supportFace(w, pos);
-            if (d == null) continue;
-            tgt = pos; want = ws; face = d; act = a; actItem = it;
-            break;
+            if (a != Act.BREAK && Tools.findItem(p, it) < 0) { missItem = it; continue; }
+            Direction d = (a == Act.WATERLOG || a == Act.BREAK) ? Direction.UP : supportFace(w, pos);
+            if (d == null) { if (unsupported == null && a == Act.PLACE) unsupported = pos; continue; }
+            double dsq = eyeNow.squaredDistanceTo(Vec3d.ofCenter(pos));
+            double score = (dsq <= nearSq ? 0 : 10000) + pos.getY() * 100 + Math.sqrt(dsq);
+            if (pos.equals(stickyTgt)) score -= 150;                         // đang làm dở thì làm cho xong
+            if (score < bestScore) {
+                bestScore = score;
+                tgt = pos; want = ws; face = d; act = a; actItem = it;
+            }
+        }
+        stickyTgt = tgt;
+
+        // có block lơ lửng không có điểm tựa: đặt block tựa tạm (tự đập đi sau khi xong)
+        if (tgt == null && unsupported != null && cfg.tempSupport) {
+            Item sc = scaffoldItem(p);
+            BlockPos n = sc == null ? null : tempSupportCell(mc, unsupported);
+            if (n != null) {
+                tgt = n;
+                want = Block.getBlockFromItem(sc).getDefaultState();
+                face = supportFace(w, n);
+                act = Act.PLACE;
+                actItem = sc;
+                tempPlace = true;
+                unsupportedWait = 0;
+            } else if (sc == null) {
+                status = t("Block lơ lửng cần block tựa tạm - cho cobblestone/dirt vào túi", "Floating block needs a temporary support - put cobblestone/dirt in inventory");
+            }
         }
 
         // block tạm của mình đang chiếm chỗ cần đặt: đập hết block tạm
@@ -848,7 +955,11 @@ public final class LitematicaBuilder extends Task {
                 return;
             }
             status = t("Chờ điểm tựa để đặt block...", "Waiting for a support block...");
-            if (++idle > 300) { bad.addAll(toLongs(pending)); pending.clear(); idle = 0; }
+            if (unsupported != null && ++unsupportedWait > 80) {      // chỉ bỏ ô không có tựa, không bỏ cả layer
+                bad.add(unsupported.asLong());
+                pending.remove(unsupported);
+                unsupportedWait = 0;
+            }
             return;
         }
         idle = 0;
@@ -938,6 +1049,7 @@ public final class LitematicaBuilder extends Task {
 
         if (walker.active()) { walker.clear(); Motion.forward(false); Motion.jump(false); }
         if (bridging) { bridging = false; Motion.forward(false); Motion.jump(false); Motion.sneak(false); }
+        if (act == Act.BREAK) { breakWrong(mc, tgt); return; }
         if (placeCooldown > 0) { placeCooldown--; return; }
         Item item = actItem;
         if (!ensureHeld(mc, p, item)) return;
@@ -1037,6 +1149,7 @@ public final class LitematicaBuilder extends Task {
         if (res.isAccepted()) p.swingHand(Hand.MAIN_HAND);
         lastPlaced = tgt;
         lastDesired = want;
+        if (tempPlace) scaf.record(tgt);                   // block tựa tạm: nhớ để đập sau
         verifyWait = 0;
         placeCooldown = cfg.placeWait();
         pending.remove(tgt);
