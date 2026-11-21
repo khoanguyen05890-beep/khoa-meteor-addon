@@ -1,0 +1,37 @@
+name: build
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 9.2.0
+      - name: Build
+        run: |
+          set +e
+          gradle build --stacktrace --no-daemon > build.log 2>&1
+          echo $? > build.status
+          tail -n 300 build.log
+          exit 0
+      - name: Publish result
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p out
+          cp build.log out/build.log
+          cp build.status out/build.status
+          cp build/libs/*.jar out/ 2>/dev/null || true
+          TAG="build-${{ github.run_number }}"
+          gh release create "$TAG" out/* --title "$TAG" --notes "status=$(cat build.status)" --target "${{ github.sha }}"
+      - name: Fail if build failed
+        run: test "$(cat build.status)" = "0"
