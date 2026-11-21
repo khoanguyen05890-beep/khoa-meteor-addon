@@ -196,7 +196,7 @@ public final class LitematicaBuilder extends Task {
                 if (w.getBlockState(m).getBlock() != want.getBlock()) tmp.add(m.toImmutable());
             }
         }
-        Vec3d pp = mc.player.getPos();
+        Vec3d pp = mc.player.getEntityPos();
         tmp.sort(Comparator.comparingDouble(b -> Tools.distSq(b, pp)));
         for (int i = 0; i < tmp.size() && i < 2000; i++) pending.add(tmp.get(i));
     }

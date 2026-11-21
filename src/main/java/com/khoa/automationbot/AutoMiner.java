@@ -178,7 +178,7 @@ public final class AutoMiner extends Task {
 
     private BlockPos pickTarget(MinecraftClient mc) {
         ClientWorld w = mc.world;
-        Vec3d pp = mc.player.getPos();
+        Vec3d pp = mc.player.getEntityPos();
         double max = Config.get().mineRadius;
         BlockPos best = null;
         double bd = Double.MAX_VALUE;

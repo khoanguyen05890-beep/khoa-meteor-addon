@@ -45,7 +45,7 @@ public final class Walker {
         Motion.forward(diff < 50f);
         Motion.jump(t.getY() > p.getY() + 0.15);
 
-        Vec3d pos = p.getPos();
+        Vec3d pos = p.getEntityPos();
         if (last != null && pos.squaredDistanceTo(last) < 0.0004) stuck++; else stuck = 0;
         last = pos;
         if (stuck > 30) { Motion.forward(false); Motion.jump(false); return Result.FAILED; }

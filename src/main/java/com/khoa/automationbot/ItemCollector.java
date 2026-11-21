@@ -69,7 +69,7 @@ public final class ItemCollector extends Task {
         for (ItemEntity e : list) {
             ItemStack st = e.getStack();
             if (!Tools.fits(p, st)) { anyUnfit = true; continue; }
-            double d = e.getPos().distanceTo(p.getPos());
+            double d = e.getEntityPos().distanceTo(p.getEntityPos());
             if (c.collectItems.contains(Tools.itemId(st.getItem()))) d *= 0.5; // ưu tiên vật phẩm đã chọn
             if (d < bestScore) { bestScore = d; best = e; }
         }
@@ -86,7 +86,7 @@ public final class ItemCollector extends Task {
             retarget = 40;
         }
 
-        if (eyeCloseEnough(p.getBlockPos(), target) || p.getPos().distanceTo(target.getPos()) < 0.9) {
+        if (eyeCloseEnough(p.getBlockPos(), target) || p.getEntityPos().distanceTo(target.getEntityPos()) < 0.9) {
             Motion.forward(false); Motion.jump(false);
             walker.clear();
             if (++waitNear > 60) { bad.add(target.getId()); target = null; }
