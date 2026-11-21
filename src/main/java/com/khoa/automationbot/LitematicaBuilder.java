@@ -3,6 +3,9 @@ package com.khoa.automationbot;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.FluidBlock;
+import net.minecraft.item.BlockItem;
+import net.minecraft.registry.tag.BlockTags;
+import net.minecraft.state.property.Property;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
@@ -58,6 +61,7 @@ public final class LitematicaBuilder extends Task {
 
     // vật liệu: quét layer -> thiếu thì lấy trong rương -> /ah
     private record Req(Item item, int need) {}
+    private record MaterialChoice(Item item, BlockState state) {}
     private final Deque<Req> queue = new ArrayDeque<>();
     private final Map<Item, Long> unobtainable = new HashMap<>();
     private Provision supply;
@@ -263,7 +267,9 @@ public final class LitematicaBuilder extends Task {
         if (!cfg.autoSupply || mc.player.isCreative()) return;
         Map<Item, Integer> need = new LinkedHashMap<>();
         for (BlockPos pos : pending) {
-            Item it = schem.getBlockState(pos).getBlock().asItem();
+            BlockState desired = schem.getBlockState(pos);
+            if (chooseMaterial(mc.player, desired) != null) continue;
+            Item it = desired.getBlock().asItem();
             if (it != Items.AIR) need.merge(it, 1, Integer::sum);
         }
         for (var e : need.entrySet()) {
@@ -402,8 +408,52 @@ public final class LitematicaBuilder extends Task {
         return null;
     }
 
+    /** Nhóm vật liệu được phép thay thế: giữ cùng công năng/hình dạng, chỉ đổi loại vật liệu. */
+    private String materialGroup(BlockState state) {
+        if (state.isIn(BlockTags.PLANKS)) return "planks";
+        if (state.isIn(BlockTags.LOGS)) return "logs";
+        if (state.isIn(BlockTags.WOOL)) return "wool";
+        if (state.isIn(BlockTags.STAIRS)) return "stairs";
+        if (state.isIn(BlockTags.SLABS)) return "slabs";
+        if (state.isIn(BlockTags.WALLS)) return "walls";
+        if (state.isIn(BlockTags.FENCES)) return "fences";
+        return null;
+    }
+
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    private BlockState copyCompatibleProperties(BlockState desired, BlockState replacement) {
+        BlockState result = replacement;
+        for (Property property : desired.getProperties()) {
+            if (!result.contains(property)) continue;
+            Comparable value = desired.get(property);
+            if (property.getValues().contains(value)) result = result.with(property, value);
+        }
+        return result;
+    }
+
+    /** Ưu tiên đúng vật liệu; nếu thiếu thì tìm block cùng nhóm trong túi đồ. */
+    private MaterialChoice chooseMaterial(ClientPlayerEntity player, BlockState desired) {
+        Item exact = desired.getBlock().asItem();
+        if (exact != Items.AIR && Tools.findItem(player, exact) >= 0)
+            return new MaterialChoice(exact, desired);
+
+        String group = materialGroup(desired);
+        if (group == null) return null;
+        PlayerInventory inv = player.getInventory();
+        for (int i = 0; i < inv.size(); i++) {
+            Item candidate = inv.getStack(i).getItem();
+            if (!(candidate instanceof BlockItem blockItem)) continue;
+            BlockState candidateState = blockItem.getBlock().getDefaultState();
+            if (!group.equals(materialGroup(candidateState))) continue;
+            return new MaterialChoice(candidate, copyCompatibleProperties(desired, candidateState));
+        }
+        return null;
+    }
+
     private boolean matchesSchematic(BlockState current, BlockState desired) {
-        return current.equals(desired);
+        if (current.equals(desired)) return true;
+        String wantedGroup = materialGroup(desired);
+        return wantedGroup != null && wantedGroup.equals(materialGroup(current));
     }
 
     private boolean ensureHeld(MinecraftClient mc, ClientPlayerEntity p, Item item) {
@@ -490,10 +540,11 @@ public final class LitematicaBuilder extends Task {
                 return;
             }
             checked++;
-            if (Tools.findItem(p, it) < 0) { missItem = it; continue; }
-            Direction d = supportFace(w, pos, ws);
+            MaterialChoice choice = chooseMaterial(p, ws);
+            if (choice == null) { missItem = it; continue; }
+            Direction d = supportFace(w, pos, choice.state());
             if (d == null) continue;
-            tgt = pos; want = ws; face = d;
+            tgt = pos; want = choice.state(); face = d;
             break;
         }
 
