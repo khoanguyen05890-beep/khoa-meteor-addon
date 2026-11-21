@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "khoa-automation-bot",
+  "version": "${version}",
+  "name": "KHOA AUTOMATION BOT",
+  "description": "Meteor addon: Auto Miner, Item Collector, Litematica Builder.",
+  "authors": ["Khoa"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "meteor": ["com.khoa.automationbot.KhoaAddon"]
+  },
+  "custom": {
+    "meteor-client:color": "59,130,246",
+    "meteor-client:authors": ["Khoa"]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "meteor-client": "*"
+  },
+  "suggests": { "litematica": "*" }
+}
