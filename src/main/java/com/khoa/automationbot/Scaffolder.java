@@ -10,6 +10,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
@@ -133,7 +134,8 @@ public final class Scaffolder {
             return R.RUNNING;
         }
         status = t("Đi trên cầu...", "Walking the bridge...");
-        Motion.turn(p, d.asRotation(), 30f, 60f);
+        float yawD = (float) (MathHelper.atan2(d.getOffsetZ(), d.getOffsetX()) * 57.29577951308232) - 90f;
+        Motion.turn(p, yawD, 30f, 60f);
         Motion.forward(true);
         return R.RUNNING;
     }
