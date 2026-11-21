@@ -68,6 +68,40 @@ public class KhoaLitematicaBuilder extends KhoaModule {
         .defaultValue(true)
         .build());
 
+    private final Setting<Integer> placeDelay = sgGeneral.add(new IntSetting.Builder()
+        .name("place-delay")
+        .description("Số tick chờ giữa 2 lần đặt block (20 tick = 1 giây). Chơi server có anti-cheat thì để 8-15 hoặc cao hơn.")
+        .defaultValue(8)
+        .min(1)
+        .sliderRange(2, 30)
+        .build());
+
+    private final Setting<Integer> placeJitter = sgGeneral.add(new IntSetting.Builder()
+        .name("place-jitter")
+        .description("Ngẫu nhiên +- số tick cho mỗi lần đặt để nhịp giống người hơn.")
+        .defaultValue(3)
+        .min(0)
+        .sliderRange(0, 10)
+        .build());
+
+    private final Setting<Boolean> autoBridge = sgLayer.add(new BoolSetting.Builder()
+        .name("auto-bridge")
+        .description("Chỗ cần đặt mà đi bộ không tới được thì đặt block liên tục (cầu ngang / cột) tới đúng chỗ rồi mới đặt block thật.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> cleanScaffold = sgLayer.add(new BoolSetting.Builder()
+        .name("clean-scaffold")
+        .description("Đập các block tạm (cầu/cột) đã đặt sau khi xong phần đó.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> placeFluids = sgLayer.add(new BoolSetting.Builder()
+        .name("place-fluids")
+        .description("Đổ nước/lava theo schematic bằng xô (water_bucket/lava_bucket): block có waterlogged (vd. lá) thì đặt block trước rồi đổ nước vào. Hết xô đầy thì tự múc lại nếu có nguồn gần.")
+        .defaultValue(true)
+        .build());
+
     private final Setting<List<Item>> scaffoldItems = sgLayer.add(new ItemListSetting.Builder()
         .name("scaffold-blocks")
         .description("Block dùng để dựng cột.")
@@ -215,6 +249,11 @@ public class KhoaLitematicaBuilder extends KhoaModule {
         c.autoLayer = autoLayer.get();
         c.layerOffset = layerOffset.get();
         c.autoPillar = autoPillar.get();
+        c.placeDelay = placeDelay.get();
+        c.placeJitter = placeJitter.get();
+        c.autoBridge = autoBridge.get();
+        c.cleanScaffold = cleanScaffold.get();
+        c.placeFluids = placeFluids.get();
         c.scaffoldItems = scaffoldItems.get().stream().map(Tools::itemId).toList();
         c.autoSupply = autoSupply.get();
         c.useStorage = useStorage.get();

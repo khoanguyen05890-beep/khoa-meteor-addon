@@ -73,6 +73,11 @@ public class Config {
     public boolean autoLayer = true;
     public int layerOffset = 0;
     public boolean autoPillar = true;
+    public boolean autoBridge = true;       // đặt block liên tục (cầu/cột) tới chỗ không đi bộ tới được
+    public boolean cleanScaffold = true;    // đập block tạm sau khi xong
+    public int placeDelay = 8;              // tick giữa 2 lần đặt block (server có anti-cheat: đặt chậm)
+    public int placeJitter = 3;             // ngẫu nhiên +- tick cho giống người
+    public boolean placeFluids = true;      // đổ nước/lava theo schematic (cần xô)
     public List<String> scaffoldItems = new ArrayList<>(List.of("minecraft:cobblestone", "minecraft:dirt"));
 
     public static Config get() { return instance; }
@@ -83,6 +88,14 @@ public class Config {
         if ("SAFE".equals(mode)) d += 3;
         else if ("FAST".equals(mode)) d -= 1;
         return Math.max(1, d);
+    }
+
+    private final java.util.Random rnd = new java.util.Random();
+
+    /** Số tick chờ giữa hai lần đặt block (chậm + ngẫu nhiên nhẹ). */
+    public int placeWait() {
+        int j = placeJitter <= 0 ? 0 : rnd.nextInt(placeJitter * 2 + 1) - placeJitter;
+        return Math.max(delay(), placeDelay + j);
     }
 
     /** Độ/tick khi xoay camera. */

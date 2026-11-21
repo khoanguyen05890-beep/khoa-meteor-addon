@@ -1,7 +1,15 @@
-# KHOA AUTOMATION BOT — Meteor addon (Minecraft 1.21.11) — v2.2.1
+# KHOA AUTOMATION BOT — Meteor addon (Minecraft 1.21.11) — v2.3.1
 
 Cột **Khoa** trong ClickGUI: `khoa-auto-miner`, `khoa-item-collector`, `khoa-litematica-builder`.
 Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa chạy tại một thời điểm.
+
+- **place-delay / place-jitter** (2.3.1): đặt block chậm hơn (mặc định 8 tick ≈ 0,4 giây, ngẫu nhiên ±3) để chơi server có anti-cheat; chỉnh trong settings của module. Nên để `mode = SAFE` cho camera xoay chậm.
+
+## Mới ở 2.3.0 (Litematica Builder)
+- **auto-bridge**: chỗ cần đặt mà đi bộ không tới được thì đặt block liên tục (cầu ngang theo hướng tới đích, hoặc dựng cột lên) tới đúng chỗ rồi mới đặt block thật. Cần cobblestone/dirt (`scaffold-blocks`).
+- **clean-scaffold**: đập hết block tạm đã đặt khi xong phần đó / sắp đi chỗ khác / block tạm đang chiếm chỗ cần đặt. Cầu thì lùi dần rồi đập, cột thì đập block dưới chân và rơi xuống.
+- Block bị mất đột ngột: cứ ~20 giây quét lại toàn bộ và thử lại cả các ô từng thất bại, nên block thiếu sẽ được đặt lại.
+- **place-fluids**: ô nước/lava nguồn trong schematic được đổ bằng xô (`water_bucket`/`lava_bucket`); block có waterlogged (lá, slab, stairs...) thì đặt block trước rồi đổ nước vào. Hết xô đầy mà có xô rỗng thì tự múc lại ở nguồn nước/lava gần đó (không múc trong vùng schematic); không có thì đi lấy xô qua rương//ah như vật liệu khác.
 
 ## Sửa lỗi 2.2.1
 - **Litematica Builder không xây gì khi Litematica đang ở chế độ single layer / range** (chỉ hiện "Set layer to y = ..." liên tục): hộp layer đang hiển thị bị tính sai (quét X/Z tại tâm schematic, ngoài layer) nên bot tưởng layer rỗng rồi nhảy layer qua lại. Đã sửa trong `LitematicaBridge.visibleBox`.
@@ -50,7 +58,7 @@ Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa 
 
 ## Build
 Push lên GitHub, workflow `build` chạy rồi đăng jar + `build.log` vào Releases.
-Local: JDK 21 + Gradle 9.x -> `gradle build` -> `build/libs/khoa-automation-bot-2.2.1.jar`.
+Local: JDK 21 + Gradle 9.x -> `gradle build` -> `build/libs/khoa-automation-bot-2.3.1.jar`.
 
 ## Lưu ý
 Mã chưa được biên dịch/chạy thử trong môi trường có Minecraft (đã kiểm tra cú pháp). Nếu build lỗi, gửi `build.log`.

@@ -9,6 +9,7 @@ import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
+import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
@@ -33,6 +34,16 @@ public final class Tools {
             if (!s.isEmpty() && s.getItem() == item) return i;
         }
         return -1;
+    }
+
+    /** Cầm item lên tay. false = chưa cầm được (đang hoán đổi từ túi, thử lại tick sau) hoặc không có. */
+    public static boolean hold(MinecraftClient mc, ClientPlayerEntity p, Item item) {
+        int slot = findItem(p, item);
+        if (slot < 0) return false;
+        PlayerInventory inv = p.getInventory();
+        if (slot < 9) { inv.setSelectedSlot(slot); return true; }
+        mc.interactionManager.clickSlot(p.playerScreenHandler.syncId, slotId(slot), inv.getSelectedSlot(), SlotActionType.SWAP, p);
+        return false;
     }
 
     public static int count(PlayerEntity p, Item item) {

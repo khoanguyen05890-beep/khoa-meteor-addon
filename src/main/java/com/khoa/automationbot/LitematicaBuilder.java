@@ -3,6 +3,9 @@ package com.khoa.automationbot;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.FluidBlock;
+import net.minecraft.fluid.FluidState;
+import net.minecraft.registry.tag.FluidTags;
+import net.minecraft.state.property.Properties;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
@@ -79,6 +82,18 @@ public final class LitematicaBuilder extends Task {
     private boolean following;
     private int visTick, emptyWait;
 
+    // block tạm (cầu/cột) để tới chỗ khó + đập sau khi xong
+    private final Scaffolder scaf = new Scaffolder();
+    private boolean bridging;
+    private BlockPos bridgeGoal;
+    private final Map<Long, Integer> bridgeTries = new HashMap<>();
+
+    // đổ nước / lava / waterlogged bằng xô
+    private enum Act { PLACE, FLUID, WATERLOG }
+    private final Map<Long, Integer> tries = new HashMap<>();
+    private BlockPos refillSrc;
+    private long refillBlockedUntil;
+
     // đặt đúng hướng
     private final Map<Long, Orient.Plan> plans = new HashMap<>();
     private float lastYaw = Float.NaN, lastPitch = Float.NaN;
@@ -102,6 +117,13 @@ public final class LitematicaBuilder extends Task {
         pearl = null;
         pearlBlockedUntil = 0;
         plans.clear();
+        scaf.reset();
+        bridging = false;
+        bridgeGoal = null;
+        bridgeTries.clear();
+        tries.clear();
+        refillSrc = null;
+        refillBlockedUntil = 0;
         emptyWait = 0;
         visTick = 0;
         vis = null;
@@ -122,6 +144,8 @@ public final class LitematicaBuilder extends Task {
 
     @Override
     protected void onStop() {
+        scaf.reset();
+        bridging = false;
         walker.clear();
         pending.clear();
         pearl = null;
@@ -175,6 +199,7 @@ public final class LitematicaBuilder extends Task {
 
     /** Dùng cho nút "Phân tích lại" trên GUI. */
     public void reanalyze() {
+        bad.clear();                 // thử lại các ô từng thất bại (block bị mất/phá đột ngột sẽ được đặt lại)
         if (loadBox()) beginAnalysis();
     }
 
@@ -216,6 +241,9 @@ public final class LitematicaBuilder extends Task {
                 Item ri = rb.asItem();
                 if (ri != Items.AIR) ids.add(Tools.itemId(ri));
             }
+            ids.add("minecraft:water_bucket");
+            ids.add("minecraft:lava_bucket");
+            ids.add("minecraft:bucket");
             Config.get().protectedItems = ids;
             analysisCooldown = totalBlocks() == 0 ? 40 : 400;
         }
@@ -296,11 +324,17 @@ public final class LitematicaBuilder extends Task {
                 for (int x = xa; x <= xb; x++) {
                     m.set(x, y, z);
                     BlockState want = schem.getBlockState(m);
-                    if (want.isAir() || want.getBlock() instanceof FluidBlock) continue;
+                    if (want.isAir()) continue;
+                    boolean fluidWant = want.getBlock() instanceof FluidBlock;
+                    if (fluidWant && (!Config.get().placeFluids || !want.getFluidState().isStill())) continue;
                     if (Orient.isSecondPart(want)) continue;       // nửa trên cửa/giường tự có khi đặt nửa dưới
                     if (bad.contains(m.asLong())) continue;
                     if (!Tools.loaded(w, x, z)) continue;
-                    if (w.getBlockState(m).getBlock() != want.getBlock()) tmp.add(m.toImmutable());
+                    BlockState cs = w.getBlockState(m);
+                    boolean missing;
+                    if (fluidWant) missing = !fluidOk(w, m, want);
+                    else missing = cs.getBlock() != want.getBlock() || (Config.get().placeFluids && wantsWater(want) && !hasWater(cs));
+                    if (missing) tmp.add(m.toImmutable());
                 }
             }
             if (following && !tmp.isEmpty()) layer = y - minY;
@@ -309,6 +343,27 @@ public final class LitematicaBuilder extends Task {
         tmp.sort(Comparator.comparingDouble(b -> Tools.distSq(b, pp)));
         for (int i = 0; i < tmp.size() && i < 2000; i++) pending.add(tmp.get(i));
         if (!layerChecked && !pending.isEmpty()) { layerChecked = true; queueSupplies(mc); }
+    }
+
+    private static boolean hasWater(BlockState s) {
+        FluidState f = s.getFluidState();
+        return f.isStill() && f.isIn(FluidTags.WATER);
+    }
+
+    /** Schematic cần block này có waterlogged = true (lá, slab, stairs, trapdoor...). */
+    private static boolean wantsWater(BlockState want) {
+        return !(want.getBlock() instanceof FluidBlock) && want.contains(Properties.WATERLOGGED) && want.get(Properties.WATERLOGGED);
+    }
+
+    /** Ô nước/lava nguồn trong schematic đã có đúng loại chất lỏng (nguồn) ngoài thế giới chưa. */
+    private static boolean fluidOk(ClientWorld w, BlockPos pos, BlockState want) {
+        FluidState cf = w.getFluidState(pos);
+        if (!cf.isStill()) return false;
+        return want.getFluidState().isIn(FluidTags.LAVA) ? cf.isIn(FluidTags.LAVA) : cf.isIn(FluidTags.WATER);
+    }
+
+    private boolean inBox(BlockPos b) {
+        return b.getX() >= minX && b.getX() <= maxX && b.getY() >= minY && b.getY() <= maxY && b.getZ() >= minZ && b.getZ() <= maxZ;
     }
 
     private boolean blocked(Item it) {
@@ -433,9 +488,80 @@ public final class LitematicaBuilder extends Task {
         if (w.getBlockState(under).isReplaceable() && Path.floorOk(w, sup) && p.getPitch() > 80f) {
             Vec3d hv = Vec3d.ofCenter(sup).add(0, 0.5, 0);
             ActionResult res = mc.interactionManager.interactBlock(p, Hand.MAIN_HAND, new BlockHitResult(hv, Direction.UP, sup, false));
-            if (res.isAccepted()) p.swingHand(Hand.MAIN_HAND);
+            if (res.isAccepted()) { p.swingHand(Hand.MAIN_HAND); scaf.record(under); }
         }
         Motion.jump(true);
+        return true;
+    }
+
+    /** Chỗ cần đặt mà đi bộ không tới: đặt block liên tục (cầu/cột) tới đó. */
+    private boolean startBridge(MinecraftClient mc, BlockPos g) {
+        if (!Config.get().autoBridge) return false;
+        if (scaffoldItem(mc.player) == null) {
+            pause();
+            status = t("Cần block để dựng cầu/cột tới chỗ đặt (đặt cobblestone/dirt vào túi) rồi Resume",
+                    "Need scaffold blocks to bridge to the build spot (put cobblestone/dirt in inventory) then Resume");
+            return true;
+        }
+        if (bridgeTries.merge(g.asLong(), 1, Integer::sum) > 2) return false;
+        bridging = true;
+        bridgeGoal = g;
+        scaf.startBridge();
+        walker.clear();
+        goalTarget = g;
+        return true;
+    }
+
+    private BlockPos findSource(ClientWorld w, ClientPlayerEntity p, boolean lava) {
+        BlockPos c = p.getBlockPos();
+        BlockPos best = null;
+        double bd = Double.MAX_VALUE;
+        BlockPos.Mutable m = new BlockPos.Mutable();
+        for (int dx = -12; dx <= 12; dx++) for (int dz = -12; dz <= 12; dz++) for (int dy = -6; dy <= 6; dy++) {
+            m.set(c.getX() + dx, c.getY() + dy, c.getZ() + dz);
+            FluidState f = w.getFluidState(m);
+            if (!f.isStill() || !f.isIn(lava ? FluidTags.LAVA : FluidTags.WATER)) continue;
+            if (inBox(m)) continue;                       // không múc phần nước/lava của chính công trình
+            double d = c.getSquaredDistance(m);
+            if (d < bd) { bd = d; best = m.toImmutable(); }
+        }
+        return best;
+    }
+
+    /** Có xô rỗng, hết xô đầy: tìm nguồn nước/lava gần đó và múc. true = đang làm việc này. */
+    private boolean refill(MinecraftClient mc, boolean lava) {
+        ClientPlayerEntity p = mc.player;
+        ClientWorld w = mc.world;
+        Config cfg = Config.get();
+        if (now < refillBlockedUntil) return false;
+        if (refillSrc == null || !w.getFluidState(refillSrc).isStill()) refillSrc = findSource(w, p, lava);
+        if (refillSrc == null) { refillBlockedUntil = now + 300; return false; }
+        final BlockPos src = refillSrc;
+        final Vec3d c = Vec3d.ofCenter(src);
+        status = t("Múc ", "Filling bucket: ") + (lava ? "lava" : t("nước", "water"));
+        if (p.getEyePos().squaredDistanceTo(c) > 4.0 * 4.0) {
+            if (!walker.active() || !src.equals(goalTarget)) {
+                Path path = Path.find(w, p.getBlockPos(),
+                        n -> new Vec3d(n.getX() + 0.5, n.getY() + 1.62, n.getZ() + 0.5).squaredDistanceTo(c) <= 3.6 * 3.6,
+                        src, 3000);
+                if (path == null || !path.complete) { refillSrc = null; refillBlockedUntil = now + 300; walker.clear(); return false; }
+                walker.set(path);
+                goalTarget = src;
+            }
+            Walker.Result r = walker.tick(mc);
+            if (r != Walker.Result.RUNNING) { walker.clear(); goalTarget = null; if (r == Walker.Result.FAILED) { refillSrc = null; refillBlockedUntil = now + 300; } }
+            return true;
+        }
+        walker.clear();
+        goalTarget = null;
+        Motion.forward(false);
+        Motion.jump(false);
+        if (!ensureHeld(mc, p, Items.BUCKET)) return true;
+        if (!Motion.lookAt(p, c, cfg.turnSpeed())) return true;
+        if (placeCooldown > 0) { placeCooldown--; return true; }
+        mc.interactionManager.interactItem(p, Hand.MAIN_HAND);
+        p.swingHand(Hand.MAIN_HAND);
+        placeCooldown = cfg.placeWait() + 2;
         return true;
     }
 
@@ -525,6 +651,9 @@ public final class LitematicaBuilder extends Task {
             scanLayer(mc);
         }
         if (pending.isEmpty()) {
+            if (scaf.has() && !bridging && cfg.cleanScaffold) {            // xong phần này: đập block tạm trước
+                if (scaf.cleanup(mc) == Scaffolder.R.RUNNING) { status = scaf.status; return; }
+            }
             Motion.release();
             walker.clear();
             if (following) { layerFinished(); return; }
@@ -547,23 +676,54 @@ public final class LitematicaBuilder extends Task {
         BlockState want = null;
         Direction face = null;
         Item missItem = null;
+        Act act = Act.PLACE;
+        Item actItem = null;
+        BlockPos blockedScaf = null;
         int checked = 0;
         for (int i = 0; i < pending.size() && checked < 150; i++) {
             BlockPos pos = pending.get(i);
             if (bad.contains(pos.asLong())) { pending.remove(i--); continue; }
             BlockState ws = schem.getBlockState(pos);
             BlockState cs = w.getBlockState(pos);
-            if (cs.getBlock() == ws.getBlock() || Orient.isSecondPart(ws)) { pending.remove(i--); continue; }
-            if (!cs.isReplaceable()) { bad.add(pos.asLong()); pending.remove(i--); continue; }
-            Item it = ws.getBlock().asItem();
-            if (it == Items.AIR) { bad.add(pos.asLong()); pending.remove(i--); continue; }
+            if (Orient.isSecondPart(ws)) { pending.remove(i--); continue; }
+            Act a;
+            Item it;
+            if (ws.getBlock() instanceof FluidBlock) {                       // ô nước / lava nguồn: đổ bằng xô
+                if (!ws.getFluidState().isStill() || fluidOk(w, pos, ws)) { tries.remove(pos.asLong()); pending.remove(i--); continue; }
+                if (!cs.isReplaceable()) {
+                    if (scaf.owns(pos)) { blockedScaf = pos; continue; }
+                    bad.add(pos.asLong()); pending.remove(i--); continue;
+                }
+                a = Act.FLUID;
+                it = ws.getFluidState().isIn(FluidTags.LAVA) ? Items.LAVA_BUCKET : Items.WATER_BUCKET;
+            } else if (cs.getBlock() == ws.getBlock()) {                    // đã có block: chỉ còn thiếu nước (waterlogged)?
+                if (!cfg.placeFluids || !wantsWater(ws) || hasWater(cs)) { tries.remove(pos.asLong()); pending.remove(i--); continue; }
+                a = Act.WATERLOG;
+                it = Items.WATER_BUCKET;
+            } else {
+                if (!cs.isReplaceable()) {
+                    if (scaf.owns(pos)) { blockedScaf = pos; continue; }     // block tạm của mình đang chiếm chỗ -> đập sau
+                    bad.add(pos.asLong()); pending.remove(i--); continue;
+                }
+                it = ws.getBlock().asItem();
+                if (it == Items.AIR) { bad.add(pos.asLong()); pending.remove(i--); continue; }
+                a = Act.PLACE;
+            }
             checked++;
             if (Tools.findItem(p, it) < 0) { missItem = it; continue; }
-            Direction d = supportFace(w, pos);
+            Direction d = a == Act.WATERLOG ? Direction.UP : supportFace(w, pos);
             if (d == null) continue;
-            tgt = pos; want = ws; face = d;
+            tgt = pos; want = ws; face = d; act = a; actItem = it;
             break;
         }
+
+        // block tạm của mình đang chiếm chỗ cần đặt: đập hết block tạm
+        if (tgt == null && blockedScaf != null && scaf.has() && !bridging && cfg.cleanScaffold) {
+            if (scaf.cleanup(mc) == Scaffolder.R.RUNNING) { status = scaf.status; return; }
+        }
+        // hết xô đầy mà có xô rỗng: múc lại ở nguồn nước/lava gần đó
+        if (tgt == null && missItem != null && (missItem == Items.WATER_BUCKET || missItem == Items.LAVA_BUCKET)
+                && Tools.findItem(p, Items.BUCKET) >= 0 && refill(mc, missItem == Items.LAVA_BUCKET)) return;
 
         if (tgt == null && startNextSupply(mc)) return;
         if (tgt == null) {
@@ -592,6 +752,32 @@ public final class LitematicaBuilder extends Task {
         if (far || inside) {
             Motion.sneak(false);
             final BlockPos g = tgt;
+            // sắp đi chỗ khác: đập block tạm đã đặt trước (không đập khi đang dựng cầu/cột/ném ngọc)
+            if (scaf.has() && !bridging && pillarMode == 0 && pearl == null && cfg.cleanScaffold) {
+                if (scaf.cleanup(mc) == Scaffolder.R.RUNNING) { status = scaf.status; return; }
+            }
+            if (bridging) {
+                Item sc = scaffoldItem(p);
+                if (sc == null) {
+                    Motion.release();
+                    bridging = false;
+                    pause();
+                    status = t("Hết block dựng cầu - bổ sung rồi Resume", "Out of scaffold blocks - add more and Resume");
+                    return;
+                }
+                Scaffolder.R br = scaf.bridge(mc, bridgeGoal, sc);
+                status = scaf.status;
+                if (br != Scaffolder.R.RUNNING) {
+                    bridging = false;
+                    Motion.forward(false);
+                    Motion.jump(false);
+                    Motion.sneak(false);
+                    walker.clear();
+                    goalTarget = null;
+                    if (br == Scaffolder.R.FAILED) { bad.add(bridgeGoal.asLong()); pending.remove(bridgeGoal); }
+                }
+                return;
+            }
             if (pearl != null) {                                   // đang ném ngọc lên layer
                 PearlHop.R pr = pearl.tick(mc);
                 status = pearl.status;
@@ -623,6 +809,7 @@ public final class LitematicaBuilder extends Task {
                 if (path == null || (!path.complete && needUp)) {
                     if (needUp && startPearl(mc, g)) return;                      // ưu tiên ném ender pearl
                     if (cfg.autoPillar && needUp && startPillar(mc, g)) return;   // không được thì dựng cột lên cao
+                    if (startBridge(mc, g)) return;                               // không đi bộ tới được: đặt block liên tục tới đó
                     if (path == null) { bad.add(g.asLong()); pending.remove(g); return; }
                 }
                 walker.set(path);
@@ -631,18 +818,53 @@ public final class LitematicaBuilder extends Task {
             Walker.Result r = walker.tick(mc);
             status = t("Đang di chuyển tới vị trí xây...", "Moving to build position...");
             if (r == Walker.Result.FAILED || (r == Walker.Result.DONE && (far || inside))) {
-                bad.add(g.asLong());
-                pending.remove(g);
                 walker.clear();
                 goalTarget = null;
+                if (startBridge(mc, g)) return;                  // đi bộ không tới đủ gần: thử đặt block liên tục tới đó
+                bad.add(g.asLong());
+                pending.remove(g);
             }
             return;
         }
 
         if (walker.active()) { walker.clear(); Motion.forward(false); Motion.jump(false); }
+        if (bridging) { bridging = false; Motion.forward(false); Motion.jump(false); Motion.sneak(false); }
         if (placeCooldown > 0) { placeCooldown--; return; }
-        Item item = want.getBlock().asItem();
+        Item item = actItem;
         if (!ensureHeld(mc, p, item)) return;
+
+        // đổ nước / lava / waterlogged bằng xô
+        if (act != Act.PLACE) {
+            Vec3d aim;
+            if (act == Act.WATERLOG) {
+                aim = Vec3d.ofCenter(tgt);
+            } else {
+                BlockPos s2 = tgt.offset(face);
+                Direction cl = face.getOpposite();
+                aim = Vec3d.ofCenter(s2).add(cl.getOffsetX() * 0.5, cl.getOffsetY() * 0.5, cl.getOffsetZ() * 0.5);
+            }
+            status = (act == Act.WATERLOG ? t("Đổ nước vào ", "Waterlogging ") : t("Đổ chất lỏng: ", "Pouring: "))
+                    + want.getBlock().getName().getString();
+            boolean ok2 = Motion.lookAt(p, aim, cfg.turnSpeed());
+            boolean same2 = Math.abs(p.getYaw() - lastYaw) < 0.05f && Math.abs(p.getPitch() - lastPitch) < 0.05f;
+            lastYaw = p.getYaw();
+            lastPitch = p.getPitch();
+            if (!ok2 || !same2) return;
+            Motion.sneak(false);
+            long key = tgt.asLong();
+            if (tries.merge(key, 1, Integer::sum) > 4) {    // thử mãi không được -> bỏ ô này
+                bad.add(key);
+                tries.remove(key);
+                pending.remove(tgt);
+                return;
+            }
+            mc.interactionManager.interactItem(p, Hand.MAIN_HAND);
+            p.swingHand(Hand.MAIN_HAND);
+            placeCooldown = cfg.placeWait() + 2;
+            pending.remove(tgt);
+            scanCooldown = Math.min(scanCooldown, 8);        // quét lại sớm để kiểm tra đã đổ được chưa
+            return;
+        }
 
         // Chọn mặt tựa + điểm bấm + hướng nhìn: block có hướng/thuộc tính thì tính riêng (Orient)
         Orient.Plan plan = null;
@@ -680,7 +902,7 @@ public final class LitematicaBuilder extends Task {
         lastPlaced = tgt;
         lastDesired = want;
         verifyWait = 0;
-        placeCooldown = cfg.delay();
+        placeCooldown = cfg.placeWait();
         pending.remove(tgt);
         plans.remove(tgt.asLong());
     }
