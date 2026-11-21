@@ -138,23 +138,36 @@ public final class LitematicaBridge {
         if (m == null) return null;
         try {
             int cx = (b[0] + b[3]) / 2, cy = (b[1] + b[4]) / 2, cz = (b[2] + b[5]) / 2;
-            int[] r = new int[]{Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE};
-            for (int x = b[0]; x <= b[3]; x++) {
-                if (within(lr, m, pos, x, cy, cz)) { r[0] = Math.min(r[0], x); r[1] = Math.max(r[1], x); }
-            }
-            for (int y = b[1]; y <= b[4]; y++) {
-                if (within(lr, m, pos, cx, y, cz)) { r[2] = Math.min(r[2], y); r[3] = Math.max(r[3], y); }
-            }
-            for (int z = b[2]; z <= b[5]; z++) {
-                if (within(lr, m, pos, cx, cy, z)) { r[4] = Math.min(r[4], z); r[5] = Math.max(r[5], z); }
-            }
-            if (isEmptyBox(r)) return new int[]{0, -1, 0, -1, 0, -1};
+            // Mỗi trục quét với 2 tọa độ còn lại ở TÂM hộp. Nếu tâm nằm ngoài layer (vd. layer đơn y=-60 nhưng
+            // tâm schematic ở y khác) thì quét X/Z cho kết quả rỗng dù layer có block -> trước đây bị hiểu nhầm
+            // là "layer rỗng" và bot không xây gì. Trục layer thật luôn quét đúng; trục nào rỗng mà trục khác
+            // có kết quả thì trục đó không bị giới hạn -> dùng cả đoạn của hộp.
+            int[] rx = sweep(lr, m, pos, 0, b, cx, cy, cz);
+            int[] ry = sweep(lr, m, pos, 1, b, cx, cy, cz);
+            int[] rz = sweep(lr, m, pos, 2, b, cx, cy, cz);
+            if (rx == null && ry == null && rz == null) return new int[]{0, -1, 0, -1, 0, -1};
+            if (rx == null) rx = new int[]{b[0], b[3]};
+            if (ry == null) ry = new int[]{b[1], b[4]};
+            if (rz == null) rz = new int[]{b[2], b[5]};
+            int[] r = new int[]{rx[0], rx[1], ry[0], ry[1], rz[0], rz[1]};
             if (r[0] == b[0] && r[1] == b[3] && r[2] == b[1] && r[3] == b[4] && r[4] == b[2] && r[5] == b[5]) return null;
             return r;
         } catch (Throwable t) {
             lastError = t.toString();
             return null;
         }
+    }
+
+    /** Quét một trục của hộp; trả {min,max} các giá trị nằm trong layer, hoặc null nếu không có giá trị nào. */
+    private static int[] sweep(Object lr, Method m, boolean pos, int axis, int[] b, int cx, int cy, int cz) throws Exception {
+        int lo = Integer.MAX_VALUE, hi = Integer.MIN_VALUE;
+        for (int v = b[axis]; v <= b[axis + 3]; v++) {
+            boolean in = axis == 0 ? within(lr, m, pos, v, cy, cz)
+                    : axis == 1 ? within(lr, m, pos, cx, v, cz)
+                    : within(lr, m, pos, cx, cy, v);
+            if (in) { if (v < lo) lo = v; if (v > hi) hi = v; }
+        }
+        return lo > hi ? null : new int[]{lo, hi};
     }
 
     private static boolean within(Object lr, Method m, boolean pos, int x, int y, int z) throws Exception {

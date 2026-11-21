@@ -1,7 +1,10 @@
-# KHOA AUTOMATION BOT — Meteor addon (Minecraft 1.21.11) — v2.2.0
+# KHOA AUTOMATION BOT — Meteor addon (Minecraft 1.21.11) — v2.2.1
 
 Cột **Khoa** trong ClickGUI: `khoa-auto-miner`, `khoa-item-collector`, `khoa-litematica-builder`.
 Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa chạy tại một thời điểm.
+
+## Sửa lỗi 2.2.1
+- **Litematica Builder không xây gì khi Litematica đang ở chế độ single layer / range** (chỉ hiện "Set layer to y = ..." liên tục): hộp layer đang hiển thị bị tính sai (quét X/Z tại tâm schematic, ngoài layer) nên bot tưởng layer rỗng rồi nhảy layer qua lại. Đã sửa trong `LitematicaBridge.visibleBox`.
 
 ## Mới ở 2.2.0
 
@@ -47,7 +50,7 @@ Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa 
 
 ## Build
 Push lên GitHub, workflow `build` chạy rồi đăng jar + `build.log` vào Releases.
-Local: JDK 21 + Gradle 9.x -> `gradle build` -> `build/libs/khoa-automation-bot-2.2.0.jar`.
+Local: JDK 21 + Gradle 9.x -> `gradle build` -> `build/libs/khoa-automation-bot-2.2.1.jar`.
 
 ## Lưu ý
 Mã chưa được biên dịch/chạy thử trong môi trường có Minecraft (đã kiểm tra cú pháp). Nếu build lỗi, gửi `build.log`.
