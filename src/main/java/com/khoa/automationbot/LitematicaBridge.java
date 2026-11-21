@@ -35,7 +35,12 @@ public final class LitematicaBridge {
             Object mgr = dm.getMethod("getSchematicPlacementManager").invoke(null);
             Object pl = mgr.getClass().getMethod("getSelectedSchematicPlacement").invoke(mgr);
             if (pl == null) { lastError = "no placement selected"; return null; }
-            Object bb = pl.getClass().getMethod("getEnclosingBox").invoke(pl);
+            Object bb = null;
+            // Litematica viết sai chính tả: "getEclosingBox" (thiếu chữ n); thử cả hai tên.
+            for (String name : new String[]{"getEclosingBox", "getEnclosingBox"}) {
+                try { bb = pl.getClass().getMethod(name).invoke(pl); break; }
+                catch (NoSuchMethodException ignored) {}
+            }
             if (bb == null) { lastError = "enclosing box = null"; return null; }
             return new int[]{num(bb, "minX"), num(bb, "minY"), num(bb, "minZ"),
                     num(bb, "maxX"), num(bb, "maxY"), num(bb, "maxZ")};
