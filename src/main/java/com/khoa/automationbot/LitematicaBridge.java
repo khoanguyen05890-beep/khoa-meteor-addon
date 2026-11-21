@@ -43,6 +43,43 @@ public final class LitematicaBridge {
         }
     }
 
+    /**
+     * Trả về Y của layer đang được Litematica hiển thị khi người dùng đang khóa đúng một layer.
+     * Dùng reflection để tương thích nhiều bản Litematica; null nếu đang hiển thị nhiều layer.
+     */
+    public static Integer visibleLayerY() {
+        try {
+            Class<?> dm = Class.forName("fi.dy.masa.litematica.data.DataManager");
+            Object range = call(dm, "getRenderLayerRange");
+            if (range == null) return null;
+            Integer lo = numberCall(range, "getLayerMinY");
+            Integer hi = numberCall(range, "getLayerMaxY");
+            if (lo == null) lo = numberCall(range, "getMinY");
+            if (hi == null) hi = numberCall(range, "getMaxY");
+            if (lo != null && hi != null && lo.equals(hi)) return lo;
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private static Integer numberCall(Object target, String method) {
+        if (target == null) return null;
+        try {
+            Object value = target.getClass().getMethod(method).invoke(target);
+            return value instanceof Number n ? n.intValue() : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Object call(Class<?> type, String name) {
+        try {
+            return type.getMethod(name).invoke(null);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
     public static World schematicWorld() {
         try {
             Class<?> c = Class.forName("fi.dy.masa.litematica.world.SchematicWorldHandler");

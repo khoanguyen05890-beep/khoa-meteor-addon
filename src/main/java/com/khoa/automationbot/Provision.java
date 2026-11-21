@@ -6,6 +6,7 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
@@ -43,6 +44,7 @@ public final class Provision {
     private final Set<Long> visited = new HashSet<>();
     private final Set<String> clickedCategories = new HashSet<>();
     private BlockPos chest;
+    private boolean shopItemSelected;
 
     private Provision(Item item, int want, boolean food) {
         this.item = item;
@@ -81,6 +83,17 @@ public final class Provision {
         switch (s) {
             case START -> {
                 startCount = Tools.count(p, item);
+                if (startCount >= want) { finish(true); break; }
+                if (!Tools.fits(p, new ItemStack(item))) {
+                    if (Tools.dropOneIgnored(mc, p, item)) {
+                        status = t("Đang vứt vật phẩm không cần thiết để tạo chỗ trống...",
+                                "Dropping configured junk items to make inventory space...");
+                        break;
+                    }
+                    fail("Túi đồ đầy. Hãy thêm vật phẩm vào ignore-items để bot biết món nào được phép vứt.",
+                            "Inventory full. Add items to ignore-items so the bot knows what it may discard.");
+                    break;
+                }
                 if (food) { s = S.SHOP_CMD; break; }
                 if (cfg.useStorage) { findChests(mc); s = S.PICK_CHEST; }
                 else afterStorage();
@@ -274,11 +287,20 @@ public final class Provision {
         s = S.AH_AFTER;
     }
 
+    /** Xác nhận listing trên /ah theo từ khóa cấu hình; chỉ dùng cho /ah, không dùng cho /shop. */
     private boolean isConfirm(ItemStack st) {
         if (st.isEmpty() || st.getItem() == item) return false;
         String n = GuiUtil.name(st).trim();
-        if (n.isEmpty()) return false;
-        return GuiUtil.nameMatches(st, Config.get().confirmKeywords);
+        return !n.isEmpty() && GuiUtil.nameMatches(st, Config.get().confirmKeywords);
+    }
+
+    /** Chỉ nhận nút kính xanh làm nút xác nhận mua theo yêu cầu. */
+    private boolean isGreenConfirm(ItemStack st) {
+        if (st.isEmpty()) return false;
+        return st.getItem() == Items.GREEN_STAINED_GLASS_PANE
+                || st.getItem() == Items.GREEN_STAINED_GLASS
+                || st.getItem() == Items.LIME_STAINED_GLASS_PANE
+                || st.getItem() == Items.LIME_STAINED_GLASS;
     }
 
     private int findSlot(ScreenHandler h, java.util.function.Predicate<ItemStack> test) {
@@ -317,7 +339,9 @@ public final class Provision {
         Config cfg = Config.get();
         if (cfg.shopCommand == null || cfg.shopCommand.isBlank()) { fail("Chưa đặt lệnh shop", "No shop command set"); return; }
         if (GuiUtil.open(p) != null) { closeGui(p); return; }
-        status = t("Mở /shop mua đồ ăn...", "Opening /shop to buy food...");
+        status = t("Mở /shop để tìm món cần mua...", "Opening /shop to find the requested item...");
+        shopItemSelected = false;
+        clickedCategories.clear();
         GuiUtil.sendCommand(mc, cfg.shopCommand);
         cmdSent++;
         timer = 0;
@@ -328,35 +352,78 @@ public final class Provision {
         ClientPlayerEntity p = mc.player;
         Config cfg = Config.get();
         timer++;
+
         if (gained(p) >= want) { closeGui(p); finish(true); return; }
+
         ScreenHandler h = GuiUtil.open(p);
         if (h == null) {
-            if (timer > 40) {
-                if (clicks > 0 && gained(p) == 0 && cmdSent < 3) s = S.SHOP_CMD;
-                else if (gained(p) > 0) finish(true);
+            if (timer > 50) {
+                if (gained(p) > 0) finish(true);
+                else if (cmdSent < 3) { s = S.SHOP_CMD; timer = 0; }
                 else fail("/shop không mở được", "/shop did not open");
             }
             return;
         }
-        if (timer < 8 || timer % 6 != 0) return;
-        if (clicks > 60) { closeGui(p); finish(gained(p) > 0); return; }
-        status = t("Đang mua thịt bò nướng ", "Buying cooked beef ") + gained(p) + "/" + want;
+        if (timer < 8 || timer % 5 != 0) return;
+        if (clicks > 80) { closeGui(p); finish(gained(p) > 0); return; }
 
-        int slot = findSlot(h, this::isConfirm);
-        if (slot >= 0) { GuiUtil.click(mc, h, slot, 0, SlotActionType.PICKUP); clicks++; return; }
+        status = t("Đang tìm/mua ", "Finding/buying ") + item.getName().getString()
+                + " (" + gained(p) + "/" + want + ")";
 
-        slot = findSlot(h, st -> st.getItem() == item || GuiUtil.nameMatches(st, cfg.foodKeywords));
-        if (slot >= 0) { GuiUtil.click(mc, h, slot, 0, SlotActionType.PICKUP); clicks++; return; }
-
-        final Set<String> seen = clickedCategories;
-        slot = findSlot(h, st -> GuiUtil.nameMatches(st, cfg.categoryKeywords) && !seen.contains(GuiUtil.name(st)));
-        if (slot >= 0) {
-            clickedCategories.add(GuiUtil.name(h.slots.get(slot).getStack()));
-            GuiUtil.click(mc, h, slot, 0, SlotActionType.PICKUP);
-            clicks++;
+        // Bước 2: sau khi chọn món, chỉ bấm kính xanh. Không bấm nút mua khác.
+        if (shopItemSelected) {
+            int green = findSlot(h, this::isGreenConfirm);
+            if (green >= 0) {
+                GuiUtil.click(mc, h, green, 0, SlotActionType.PICKUP);
+                clicks++;
+                shopItemSelected = false;
+                timer = 0;
+                if (gained(p) >= want) { closeGui(p); finish(true); }
+                else { closeGui(p); s = S.SHOP_CMD; }
+                return;
+            }
+            // Một số shop mua trực tiếp ngay khi chọn món; chấp nhận nếu số lượng đã tăng.
+            if (gained(p) > 0) {
+                shopItemSelected = false;
+                if (gained(p) >= want) { closeGui(p); finish(true); }
+                else { closeGui(p); s = S.SHOP_CMD; timer = 0; }
+                return;
+            }
+            if (timer > 90) {
+                closeGui(p);
+                fail("Đã chọn món nhưng không tìm thấy kính xanh xác nhận mua",
+                        "Item selected but no green-glass purchase confirmation was found");
+            }
             return;
         }
-        closeGui(p);
-        fail("Không thấy thịt bò nướng trong /shop", "Cooked beef not found in /shop");
+
+        // Bước 1: quét GUI hiện tại và chọn đúng vật phẩm cần mua.
+        int product = findSlot(h, st -> st.getItem() == item
+                || GuiUtil.nameMatches(st, cfg.foodKeywords));
+        if (product >= 0) {
+            GuiUtil.click(mc, h, product, 0, SlotActionType.PICKUP);
+            clicks++;
+            shopItemSelected = true;
+            timer = 0;
+            return;
+        }
+
+        // Nếu chưa thấy sản phẩm, đi vào từng danh mục thức ăn; không click nút xác nhận chung.
+        int category = findSlot(h, st -> GuiUtil.nameMatches(st, cfg.categoryKeywords)
+                && !clickedCategories.contains(GuiUtil.name(st)));
+        if (category >= 0) {
+            clickedCategories.add(GuiUtil.name(h.slots.get(category).getStack()));
+            GuiUtil.click(mc, h, category, 0, SlotActionType.PICKUP);
+            clicks++;
+            timer = 0;
+            return;
+        }
+
+        if (timer > 45) {
+            closeGui(p);
+            fail("Không tìm thấy đúng món cần mua trong /shop",
+                    "Could not find the requested item in /shop");
+        }
     }
+
 }

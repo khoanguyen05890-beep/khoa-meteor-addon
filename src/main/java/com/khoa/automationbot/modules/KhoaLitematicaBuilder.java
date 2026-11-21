@@ -26,7 +26,7 @@ public class KhoaLitematicaBuilder extends KhoaModule {
     // ---- Layer ----
     private final Setting<Boolean> autoLayer = sgLayer.add(new BoolSetting.Builder()
         .name("auto-layer")
-        .description("Tự đặt layer bắt đầu = độ cao Y đang đứng, xây xong layer thì nâng lên layer kế.")
+        .description("Ưu tiên layer đang hiển thị trong Litematica (nếu chỉ hiện một layer); nếu không thì dùng Y đang đứng.")
         .defaultValue(true)
         .build());
 
@@ -47,7 +47,7 @@ public class KhoaLitematicaBuilder extends KhoaModule {
     private final Setting<List<Item>> scaffoldItems = sgLayer.add(new ItemListSetting.Builder()
         .name("scaffold-blocks")
         .description("Block dùng để dựng cột.")
-        .defaultValue(new ArrayList<>(List.of(Items.COBBLESTONE, Items.DIRT)))
+        .defaultValue(new ArrayList<>(List.of(Items.ROTTEN_FLESH, Items.POISONOUS_POTATO)))
         .build());
 
     // ---- Supply ----
@@ -55,6 +55,12 @@ public class KhoaLitematicaBuilder extends KhoaModule {
         .name("auto-supply")
         .description("Quét vật liệu của layer; thiếu thì lấy trong rương, không có nữa thì mua trên /ah.")
         .defaultValue(true)
+        .build());
+
+    private final Setting<List<Item>> ignoreItems = sgSupply.add(new ItemListSetting.Builder()
+        .name("ignore-items")
+        .description("Khi túi đầy, bot chỉ được phép vứt những vật phẩm trong danh sách này để lấy chỗ trống.")
+        .defaultValue(new ArrayList<>(List.of(Items.COBBLESTONE, Items.DIRT)))
         .build());
 
     private final Setting<Boolean> useStorage = sgSupply.add(new BoolSetting.Builder()
@@ -189,6 +195,7 @@ public class KhoaLitematicaBuilder extends KhoaModule {
         c.autoPillar = autoPillar.get();
         c.scaffoldItems = scaffoldItems.get().stream().map(Tools::itemId).toList();
         c.autoSupply = autoSupply.get();
+        c.ignoreItems = ignoreItems.get().stream().map(Tools::itemId).toList();
         c.useStorage = useStorage.get();
         c.storageRadius = storageRadius.get();
         c.useAh = useAh.get();
