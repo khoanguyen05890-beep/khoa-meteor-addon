@@ -1,10 +1,12 @@
 package com.khoa.automationbot;
 
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.LoreComponent;
 import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
 import net.minecraft.screen.ScreenHandler;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.text.Text;
@@ -27,6 +29,27 @@ public final class GuiUtil {
     public static int topCount(ScreenHandler h) { return Math.max(0, h.slots.size() - 36); }
 
     public static String name(ItemStack s) { return s.getName().getString(); }
+
+    /** Tiêu đề của GUI đang mở (vd "SHOP -> FOOD", "Mua Cooked Beef"). */
+    public static String title(MinecraftClient mc) {
+        if (mc.currentScreen instanceof HandledScreen<?> hs) return hs.getTitle().getString();
+        return "";
+    }
+
+    private static boolean glass(ItemStack s, String color) {
+        if (s.isEmpty()) return false;
+        String p = Registries.ITEM.getId(s.getItem()).getPath();
+        return p.contains("glass") && p.startsWith(color + "_");
+    }
+
+    /** Kính xanh (lime/green) - nút xác nhận mua. */
+    public static boolean isGreen(ItemStack s) { return glass(s, "lime") || glass(s, "green"); }
+
+    /** Nút "+ Thêm N" (tăng số lượng) - cũng là kính xanh nhưng KHÔNG phải nút mua. */
+    public static boolean isAdd(ItemStack s) {
+        String n = name(s).toLowerCase(Locale.ROOT);
+        return n.contains("+") || n.contains("thêm") || n.contains("them") || n.contains("add");
+    }
 
     public static String lore(ItemStack s) {
         LoreComponent lore = s.get(DataComponentTypes.LORE);

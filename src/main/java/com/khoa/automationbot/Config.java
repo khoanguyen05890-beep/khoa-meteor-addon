@@ -58,7 +58,18 @@ public class Config {
     public List<String> confirmKeywords = new ArrayList<>(List.of(
             "confirm", "xác nhận", "xac nhan", "accept", "đồng ý", "dong y", "purchase", "buy", "mua", "yes"));
 
+    // ---- kho đồ: vứt đồ không cần thiết khi cần chỗ trống ----
+    public boolean autoDrop = true;
+    public int minFreeSlots = 2;
+    public List<String> keepItems = new ArrayList<>();
+    /** Item (id) mà schematic đang cần - builder tự cập nhật, không bao giờ bị vứt. */
+    public java.util.Set<String> protectedItems = new java.util.HashSet<>();
+
     // ---- builder ----
+    public boolean followLayer = true;      // xây đúng layer Litematica đang hiển thị
+    public boolean advanceLayer = true;     // xong layer thì tự chuyển layer Litematica lên
+    public boolean autoOrient = true;       // tự chỉnh hướng khi đặt block (stairs, log, slab, furnace...)
+    public boolean usePearl = true;         // ném ender pearl để lên layer đang xây
     public boolean autoLayer = true;
     public int layerOffset = 0;
     public boolean autoPillar = true;

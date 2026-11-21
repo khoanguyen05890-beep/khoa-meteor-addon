@@ -24,6 +24,8 @@ public final class Hunger {
     private static final Set<Item> BAD = Set.of(Items.ROTTEN_FLESH, Items.SPIDER_EYE, Items.POISONOUS_POTATO,
             Items.PUFFERFISH, Items.CHICKEN, Items.CHORUS_FRUIT, Items.GOLDEN_APPLE, Items.ENCHANTED_GOLDEN_APPLE);
 
+    public static boolean isBad(Item i) { return BAD.contains(i); }
+
     public String status = "";
     private Provision shop;
     private boolean eating;

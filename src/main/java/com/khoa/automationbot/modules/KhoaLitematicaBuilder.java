@@ -24,9 +24,33 @@ public class KhoaLitematicaBuilder extends KhoaModule {
     private final SettingGroup sgSupply = settings.createGroup("Supply");
 
     // ---- Layer ----
+    private final Setting<Boolean> followLayer = sgLayer.add(new BoolSetting.Builder()
+        .name("follow-litematica-layer")
+        .description("Xây ĐÚNG layer mà Litematica đang hiển thị (single / above / below / range, mọi trục). Chế độ hiển thị ALL thì dùng auto-layer.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> advanceLayer = sgLayer.add(new BoolSetting.Builder()
+        .name("advance-litematica-layer")
+        .description("Xây xong layer đang hiện thì tự chuyển layer của Litematica lên layer kế (tắt = chờ bạn tự đổi layer).")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> autoOrient = sgLayer.add(new BoolSetting.Builder()
+        .name("auto-orient")
+        .description("Khi đặt block tự chỉnh hướng nhìn/mặt bấm cho đúng schematic (stairs, slab trên/dưới, log, furnace, piston, trapdoor...).")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Boolean> usePearl = sgLayer.add(new BoolSetting.Builder()
+        .name("use-ender-pearl")
+        .description("Layer cao hơn chỗ đứng thì ném ender pearl lên chỗ đã có sàn gần layer đang xây (cần ender pearl trong túi, máu > 8). Không được thì dựng cột.")
+        .defaultValue(true)
+        .build());
+
     private final Setting<Boolean> autoLayer = sgLayer.add(new BoolSetting.Builder()
         .name("auto-layer")
-        .description("Ưu tiên layer đang hiển thị trong Litematica (nếu chỉ hiện một layer); nếu không thì dùng Y đang đứng.")
+        .description("Tự đặt layer bắt đầu = độ cao Y đang đứng, xây xong layer thì nâng lên layer kế.")
         .defaultValue(true)
         .build());
 
@@ -47,7 +71,7 @@ public class KhoaLitematicaBuilder extends KhoaModule {
     private final Setting<List<Item>> scaffoldItems = sgLayer.add(new ItemListSetting.Builder()
         .name("scaffold-blocks")
         .description("Block dùng để dựng cột.")
-        .defaultValue(new ArrayList<>(List.of(Items.ROTTEN_FLESH, Items.POISONOUS_POTATO)))
+        .defaultValue(new ArrayList<>(List.of(Items.COBBLESTONE, Items.DIRT)))
         .build());
 
     // ---- Supply ----
@@ -55,12 +79,6 @@ public class KhoaLitematicaBuilder extends KhoaModule {
         .name("auto-supply")
         .description("Quét vật liệu của layer; thiếu thì lấy trong rương, không có nữa thì mua trên /ah.")
         .defaultValue(true)
-        .build());
-
-    private final Setting<List<Item>> ignoreItems = sgSupply.add(new ItemListSetting.Builder()
-        .name("ignore-items")
-        .description("Khi túi đầy, bot chỉ được phép vứt những vật phẩm trong danh sách này để lấy chỗ trống.")
-        .defaultValue(new ArrayList<>(List.of(Items.COBBLESTONE, Items.DIRT)))
         .build());
 
     private final Setting<Boolean> useStorage = sgSupply.add(new BoolSetting.Builder()
@@ -190,12 +208,15 @@ public class KhoaLitematicaBuilder extends KhoaModule {
     @Override
     protected void applyConfig(Config c) {
         super.applyConfig(c);
+        c.followLayer = followLayer.get();
+        c.advanceLayer = advanceLayer.get();
+        c.autoOrient = autoOrient.get();
+        c.usePearl = usePearl.get();
         c.autoLayer = autoLayer.get();
         c.layerOffset = layerOffset.get();
         c.autoPillar = autoPillar.get();
         c.scaffoldItems = scaffoldItems.get().stream().map(Tools::itemId).toList();
         c.autoSupply = autoSupply.get();
-        c.ignoreItems = ignoreItems.get().stream().map(Tools::itemId).toList();
         c.useStorage = useStorage.get();
         c.storageRadius = storageRadius.get();
         c.useAh = useAh.get();

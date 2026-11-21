@@ -83,6 +83,27 @@ public abstract class KhoaModule extends Module {
         .sliderMax(64)
         .build());
 
+    // ---- kho đồ: vứt đồ không cần thiết khi cần chỗ trống để mua/lấy đồ ----
+    private final Setting<Boolean> autoDrop = sgSurvival.add(new BoolSetting.Builder()
+        .name("auto-drop")
+        .description("Túi gần đầy khi mua (/shop, /ah) hoặc lấy đồ từ rương thì vứt đồ không cần thiết ra. Không bao giờ vứt vật liệu schematic, đồ ăn, ender pearl, công cụ/giáp, đồ enchant/đặt tên, shulker, đồ quý.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Integer> minFreeSlots = sgSurvival.add(new IntSetting.Builder()
+        .name("min-free-slots")
+        .description("Số ô trống tối thiểu cần có trước khi mua (thiếu thì vứt đồ thừa).")
+        .defaultValue(2)
+        .min(1)
+        .sliderMax(8)
+        .build());
+
+    private final Setting<List<Item>> keepItems = sgSurvival.add(new ItemListSetting.Builder()
+        .name("keep-items")
+        .description("Những món KHÔNG bao giờ bị vứt (thêm vào ngoài các món tự động được giữ).")
+        .defaultValue(new ArrayList<>())
+        .build());
+
     protected final Hunger hunger = new Hunger();
     protected Task task;
     private int resumeTimer;
@@ -103,6 +124,9 @@ public abstract class KhoaModule extends Module {
         c.shopCommand = shopCommand.get();
         c.foodKeywords = new ArrayList<>(foodKeywords.get());
         c.foodAmount = foodAmount.get();
+        c.autoDrop = autoDrop.get();
+        c.minFreeSlots = minFreeSlots.get();
+        c.keepItems = keepItems.get().stream().map(Tools::itemId).toList();
     }
 
     protected boolean pausedByUser() { return false; }

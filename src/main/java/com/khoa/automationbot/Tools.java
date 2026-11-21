@@ -9,7 +9,6 @@ import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.registry.Registries;
-import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import net.minecraft.world.World;
@@ -26,22 +25,6 @@ public final class Tools {
     }
 
     public static boolean inventoryFull(PlayerEntity p) { return p.getInventory().getEmptySlot() == -1; }
-
-
-    /** Vứt một stack thuộc danh sách bỏ qua để tạo chỗ trống trong túi đồ. */
-    public static boolean dropOneIgnored(MinecraftClient mc, PlayerEntity p, Item keep) {
-        for (int i = 0; i < 36; i++) {
-            ItemStack stack = p.getInventory().getStack(i);
-            if (stack.isEmpty()) continue;
-            String id = itemId(stack.getItem());
-            if (stack.getItem() != keep && Config.get().ignoreItems.contains(id)) {
-                mc.interactionManager.clickSlot(p.playerScreenHandler.syncId, slotId(i),
-                        1, SlotActionType.THROW, (net.minecraft.entity.player.PlayerEntity) p);
-                return true;
-            }
-        }
-        return false;
-    }
 
     public static int findItem(PlayerEntity p, Item item) {
         PlayerInventory inv = p.getInventory();

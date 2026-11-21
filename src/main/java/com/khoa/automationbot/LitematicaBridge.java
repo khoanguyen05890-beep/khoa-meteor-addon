@@ -43,43 +43,6 @@ public final class LitematicaBridge {
         }
     }
 
-    /**
-     * Trả về Y của layer đang được Litematica hiển thị khi người dùng đang khóa đúng một layer.
-     * Dùng reflection để tương thích nhiều bản Litematica; null nếu đang hiển thị nhiều layer.
-     */
-    public static Integer visibleLayerY() {
-        try {
-            Class<?> dm = Class.forName("fi.dy.masa.litematica.data.DataManager");
-            Object range = call(dm, "getRenderLayerRange");
-            if (range == null) return null;
-            Integer lo = numberCall(range, "getLayerMinY");
-            Integer hi = numberCall(range, "getLayerMaxY");
-            if (lo == null) lo = numberCall(range, "getMinY");
-            if (hi == null) hi = numberCall(range, "getMaxY");
-            if (lo != null && hi != null && lo.equals(hi)) return lo;
-        } catch (Throwable ignored) {
-        }
-        return null;
-    }
-
-    private static Integer numberCall(Object target, String method) {
-        if (target == null) return null;
-        try {
-            Object value = target.getClass().getMethod(method).invoke(target);
-            return value instanceof Number n ? n.intValue() : null;
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
-    private static Object call(Class<?> type, String name) {
-        try {
-            return type.getMethod(name).invoke(null);
-        } catch (Throwable ignored) {
-            return null;
-        }
-    }
-
     public static World schematicWorld() {
         try {
             Class<?> c = Class.forName("fi.dy.masa.litematica.world.SchematicWorldHandler");
@@ -130,6 +93,104 @@ public final class LitematicaBridge {
         if (r != null) return r;
         if (lastError.isEmpty()) lastError = pl == null ? "no placement selected" : "cannot read placement size";
         return null;
+    }
+
+
+    // ------------------------------------------------------------------ LAYER đang hiển thị của Litematica
+
+    /** LayerRange của Litematica (DataManager.getRenderLayerRange()), hoặc null. */
+    private static Object layerRange() {
+        try {
+            Class<?> dm = Class.forName("fi.dy.masa.litematica.data.DataManager");
+            return dm.getMethod("getRenderLayerRange").invoke(null);
+        } catch (Throwable t) {
+            lastError = t.toString();
+            return null;
+        }
+    }
+
+    private static String layerModeName(Object lr) {
+        Object mode = call(lr, "getLayerMode");
+        return mode instanceof Enum<?> e ? e.name() : "";
+    }
+
+    public static boolean isEmptyBox(int[] v) {
+        return v != null && (v[0] > v[1] || v[2] > v[3] || v[4] > v[5]);
+    }
+
+    /**
+     * Phần của hộp bao `b` ({minX,minY,minZ,maxX,maxY,maxZ}) mà Litematica đang HIỂN THỊ theo chế độ layer,
+     * dạng {x0,x1,y0,y1,z0,z1}. null = chế độ ALL (hiện hết) hoặc không đọc được -> không giới hạn.
+     * Hộp rỗng (x0 > x1...) = layer đang hiện không chạm schematic.
+     * Dùng isPositionWithinRange() của chính Litematica nên đúng với mọi chế độ (single/above/below/range) và mọi trục.
+     */
+    public static int[] visibleBox(int[] b) {
+        Object lr = layerRange();
+        if (lr == null) return null;
+        if (layerModeName(lr).equals("ALL")) return null;
+        Method m = null;
+        boolean pos = false;
+        for (Method mm : lr.getClass().getMethods()) {
+            if (!mm.getName().equals("isPositionWithinRange")) continue;
+            if (mm.getParameterCount() == 3) { m = mm; pos = false; break; }
+            if (mm.getParameterCount() == 1 && mm.getParameterTypes()[0] == BlockPos.class) { m = mm; pos = true; }
+        }
+        if (m == null) return null;
+        try {
+            int cx = (b[0] + b[3]) / 2, cy = (b[1] + b[4]) / 2, cz = (b[2] + b[5]) / 2;
+            int[] r = new int[]{Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE, Integer.MAX_VALUE, Integer.MIN_VALUE};
+            for (int x = b[0]; x <= b[3]; x++) {
+                if (within(lr, m, pos, x, cy, cz)) { r[0] = Math.min(r[0], x); r[1] = Math.max(r[1], x); }
+            }
+            for (int y = b[1]; y <= b[4]; y++) {
+                if (within(lr, m, pos, cx, y, cz)) { r[2] = Math.min(r[2], y); r[3] = Math.max(r[3], y); }
+            }
+            for (int z = b[2]; z <= b[5]; z++) {
+                if (within(lr, m, pos, cx, cy, z)) { r[4] = Math.min(r[4], z); r[5] = Math.max(r[5], z); }
+            }
+            if (isEmptyBox(r)) return new int[]{0, -1, 0, -1, 0, -1};
+            if (r[0] == b[0] && r[1] == b[3] && r[2] == b[1] && r[3] == b[4] && r[4] == b[2] && r[5] == b[5]) return null;
+            return r;
+        } catch (Throwable t) {
+            lastError = t.toString();
+            return null;
+        }
+    }
+
+    private static boolean within(Object lr, Method m, boolean pos, int x, int y, int z) throws Exception {
+        Object r = pos ? m.invoke(lr, new BlockPos(x, y, z)) : m.invoke(lr, x, y, z);
+        return Boolean.TRUE.equals(r);
+    }
+
+    /** Dời layer của Litematica lên/xuống (như phím tắt Layer +/-). */
+    public static boolean moveLayer(int amount) {
+        Object lr = layerRange();
+        if (lr == null) return false;
+        for (Method m : lr.getClass().getMethods()) {
+            if (!m.getName().equals("moveLayer") || m.getParameterCount() != 1 || m.getParameterTypes()[0] != int.class) continue;
+            try {
+                m.invoke(lr, amount);
+                return true;
+            } catch (Throwable t) {
+                lastError = t.toString();
+            }
+        }
+        return false;
+    }
+
+    /** Chuyển Litematica sang layer kế tiếp. false nếu đã hết schematic / chế độ không hỗ trợ. */
+    public static boolean advanceLayer(int[] box) {
+        Object lr = layerRange();
+        if (lr == null) return false;
+        String mode = layerModeName(lr);
+        if (mode.equals("ALL") || mode.equals("ALL_ABOVE") || mode.isEmpty()) return false;
+        if (!moveLayer(1)) return false;
+        int[] after = visibleBox(box);
+        if (after == null || isEmptyBox(after)) {     // đã vượt khỏi schematic -> trả lại
+            moveLayer(-1);
+            return false;
+        }
+        return true;
     }
 
     // ------------------------------------------------------------------
