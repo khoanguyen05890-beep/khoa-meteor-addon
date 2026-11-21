@@ -18,6 +18,8 @@ import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.util.hit.BlockHitResult;
+import net.minecraft.util.hit.HitResult;
+import net.minecraft.world.RaycastContext;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.Vec3d;
@@ -94,6 +96,18 @@ public final class LitematicaBuilder extends Task {
     private BlockPos refillSrc;
     private long refillBlockedUntil;
 
+    // điểm ngắm thật (tia nhìn phải trúng đúng mặt block tựa) - để đặt/đổ giống người chơi thật
+    private static final class Aim {
+        final BlockPos sup;        // block bị bấm vào
+        final Direction click;     // mặt bị bấm
+        final Vec3d point;         // điểm cần ngắm
+        Aim(BlockPos sup, Direction click, Vec3d point) { this.sup = sup; this.click = click; this.point = point; }
+    }
+    private Aim aim;
+    private BlockPos aimFor;
+    private int aimWait, aimMiss;
+    private final Random rng = new Random();
+
     // đặt đúng hướng
     private final Map<Long, Orient.Plan> plans = new HashMap<>();
     private float lastYaw = Float.NaN, lastPitch = Float.NaN;
@@ -117,6 +131,8 @@ public final class LitematicaBuilder extends Task {
         pearl = null;
         pearlBlockedUntil = 0;
         plans.clear();
+        aim = null;
+        aimFor = null;
         scaf.reset();
         bridging = false;
         bridgeGoal = null;
@@ -319,6 +335,7 @@ public final class LitematicaBuilder extends Task {
         else { ya = yb = minY + layer; }
         BlockPos.Mutable m = new BlockPos.Mutable();
         List<BlockPos> tmp = new ArrayList<>();
+        Set<Long> inTmp = new HashSet<>();
         for (int y = ya; y <= yb && tmp.isEmpty(); y++) {        // từ thấp lên cao: layer thấp nhất còn thiếu
             for (int z = za; z <= zb; z++) {
                 for (int x = xa; x <= xb; x++) {
@@ -334,7 +351,18 @@ public final class LitematicaBuilder extends Task {
                     boolean missing;
                     if (fluidWant) missing = !fluidOk(w, m, want);
                     else missing = cs.getBlock() != want.getBlock() || (Config.get().placeFluids && wantsWater(want) && !hasWater(cs));
-                    if (missing) tmp.add(m.toImmutable());
+                    if (!missing) continue;
+                    if (fluidWant && Config.get().fluidWalls) {
+                        // KHÔNG đổ lava/nước khi block chặn xung quanh chưa đặt: đặt hết block chặn trước đã
+                        List<BlockPos> walls = new ArrayList<>();
+                        if (!walled(w, m, walls)) {
+                            for (BlockPos wp : walls) {
+                                if (inTmp.add(wp.asLong())) tmp.add(wp);
+                            }
+                            continue;
+                        }
+                    }
+                    if (inTmp.add(m.asLong())) tmp.add(m.toImmutable());
                 }
             }
             if (following && !tmp.isEmpty()) layer = y - minY;
@@ -343,6 +371,25 @@ public final class LitematicaBuilder extends Task {
         tmp.sort(Comparator.comparingDouble(b -> Tools.distSq(b, pp)));
         for (int i = 0; i < tmp.size() && i < 2000; i++) pending.add(tmp.get(i));
         if (!layerChecked && !pending.isEmpty()) { layerChecked = true; queueSupplies(mc); }
+    }
+
+    /**
+     * Mọi ô kề (6 hướng) mà schematic cần block đặc đều phải có block đúng ngoài thế giới thì mới được đổ chất lỏng.
+     * Ô còn thiếu được đưa vào `missingOut` để đặt trước.
+     */
+    private boolean walled(ClientWorld w, BlockPos pos, List<BlockPos> missingOut) {
+        boolean ok = true;
+        for (Direction d : Direction.values()) {
+            BlockPos n = pos.offset(d);
+            BlockState ws = schem.getBlockState(n);
+            if (ws.isAir() || ws.getBlock() instanceof FluidBlock || Orient.isSecondPart(ws)) continue;
+            if (!Tools.loaded(w, n.getX(), n.getZ())) { ok = false; continue; }
+            if (w.getBlockState(n).getBlock() != ws.getBlock()) {
+                ok = false;
+                if (!bad.contains(n.asLong())) missingOut.add(n);
+            }
+        }
+        return ok;
     }
 
     private static boolean hasWater(BlockState s) {
@@ -580,6 +627,67 @@ public final class LitematicaBuilder extends Task {
         return true;
     }
 
+    /** Tia từ mắt tới điểm: trả về block trúng đầu tiên (có tính vật cản - không xuyên tường). */
+    private BlockHitResult castTo(MinecraftClient mc, Vec3d point) {
+        return mc.world.raycast(new RaycastContext(mc.player.getEyePos(), point,
+                RaycastContext.ShapeType.OUTLINE, RaycastContext.FluidHandling.NONE, mc.player));
+    }
+
+    /**
+     * Tìm điểm ngắm hợp lệ: nằm trong tầm với `place-reach`, tia nhìn trúng ĐÚNG mặt block tựa (không bị vật cản).
+     * Chọn điểm ít phải xoay đầu nhất; điểm bấm lệch ngẫu nhiên nhẹ trên mặt block như người thật.
+     * WATERLOG: bấm thẳng vào block cần ngập nước.
+     */
+    private Aim findAim(MinecraftClient mc, BlockPos tgt, Act act) {
+        ClientPlayerEntity p = mc.player;
+        ClientWorld w = mc.world;
+        Vec3d eye = p.getEyePos();
+        double reach = Config.get().placeReach + 0.3;
+        double jx = (rng.nextDouble() - 0.5) * 0.4, jy = (rng.nextDouble() - 0.5) * 0.4;
+        double[][] offs = {{jx, jy}, {0, 0}, {0.25, 0}, {-0.25, 0}, {0, 0.25}, {0, -0.25}, {0.3, 0.3}, {-0.3, -0.3}, {0.3, -0.3}, {-0.3, 0.3}};
+        Aim best = null;
+        double bestScore = Double.MAX_VALUE;
+        for (Direction d : Direction.values()) {
+            BlockPos sup = act == Act.WATERLOG ? tgt : tgt.offset(d);
+            if (act != Act.WATERLOG) {
+                BlockState ss = w.getBlockState(sup);
+                if (ss.isAir() || ss.isReplaceable() || !ss.getFluidState().isEmpty()) continue;
+            }
+            Direction click = act == Act.WATERLOG ? d : d.getOpposite();
+            for (double[] o : offs) {
+                Vec3d base = Vec3d.ofCenter(sup).add(click.getOffsetX() * 0.5, click.getOffsetY() * 0.5, click.getOffsetZ() * 0.5);
+                Vec3d pt;
+                if (click.getAxis() == Direction.Axis.Y) pt = base.add(o[0], 0, o[1]);
+                else if (click.getAxis() == Direction.Axis.X) pt = base.add(0, o[1], o[0]);
+                else pt = base.add(o[0], o[1], 0);
+                // lùi vào mặt block 0.02 để tia chắc chắn "chạm" mặt đó
+                pt = pt.subtract(click.getOffsetX() * 0.02, click.getOffsetY() * 0.02, click.getOffsetZ() * 0.02);
+                double dist = eye.distanceTo(pt);
+                if (dist > reach) continue;
+                BlockHitResult hr = castTo(mc, pt.add(click.getOffsetX() * -0.2, click.getOffsetY() * -0.2, click.getOffsetZ() * -0.2));
+                if (hr.getType() != HitResult.Type.BLOCK) continue;
+                if (!hr.getBlockPos().equals(sup) || hr.getSide() != click) continue;
+                double dx = pt.x - eye.x, dy = pt.y - eye.y, dz = pt.z - eye.z;
+                float yaw = (float) (Math.atan2(dz, dx) * 57.29577951308232) - 90f;
+                float pitch = (float) -(Math.atan2(dy, Math.sqrt(dx * dx + dz * dz)) * 57.29577951308232);
+                double turn = Math.abs(net.minecraft.util.math.MathHelper.wrapDegrees(yaw - p.getYaw()))
+                        + Math.abs(pitch - p.getPitch());
+                double score = turn + dist * 4;
+                if (score < bestScore) { bestScore = score; best = new Aim(sup, click, pt); }
+            }
+        }
+        return best;
+    }
+
+    /** Tia nhìn THẬT hiện tại (theo yaw/pitch đang có) - đúng thứ crosshair đang chỉ vào. */
+    private BlockHitResult crosshair(MinecraftClient mc) {
+        ClientPlayerEntity p = mc.player;
+        Vec3d e = p.getEyePos();
+        Vec3d end = e.add(p.getRotationVec(1.0f).multiply(Config.get().placeReach + 1.0));
+        return mc.world.raycast(new RaycastContext(e, end, RaycastContext.ShapeType.OUTLINE,
+                RaycastContext.FluidHandling.NONE, p));
+    }
+
     private Direction supportFace(ClientWorld w, BlockPos pos) {
         for (Direction d : Direction.values()) {
             BlockPos n = pos.offset(d);
@@ -748,7 +856,8 @@ public final class LitematicaBuilder extends Task {
         Vec3d c = Vec3d.ofCenter(tgt);
         BlockPos feet = p.getBlockPos();
         boolean inside = feet.equals(tgt) || feet.up().equals(tgt);
-        boolean far = p.getEyePos().squaredDistanceTo(c) > 4.2 * 4.2;
+        double reach = cfg.placeReach;
+        boolean far = p.getEyePos().squaredDistanceTo(c) > (reach + 0.5) * (reach + 0.5);
         if (far || inside) {
             Motion.sneak(false);
             final BlockPos g = tgt;
@@ -803,7 +912,7 @@ public final class LitematicaBuilder extends Task {
             if (!g.equals(goalTarget) || !walker.active()) {
                 Path path = Path.find(w, feet, n -> {
                     Vec3d eye = new Vec3d(n.getX() + 0.5, n.getY() + 1.62, n.getZ() + 0.5);
-                    return eye.squaredDistanceTo(Vec3d.ofCenter(g)) <= 3.8 * 3.8 && !n.equals(g) && !n.up().equals(g);
+                    return eye.squaredDistanceTo(Vec3d.ofCenter(g)) <= reach * reach && !n.equals(g) && !n.up().equals(g);
                 }, g, 4000);
                 boolean needUp = g.getY() - feet.getY() >= 2;
                 if (path == null || (!path.complete && needUp)) {
@@ -833,23 +942,29 @@ public final class LitematicaBuilder extends Task {
         Item item = actItem;
         if (!ensureHeld(mc, p, item)) return;
 
-        // đổ nước / lava / waterlogged bằng xô
+        // đổ nước / lava / waterlogged bằng xô: chỉ đổ khi tia nhìn THẬT trúng đúng chỗ cần đổ
         if (act != Act.PLACE) {
-            Vec3d aim;
-            if (act == Act.WATERLOG) {
-                aim = Vec3d.ofCenter(tgt);
-            } else {
-                BlockPos s2 = tgt.offset(face);
-                Direction cl = face.getOpposite();
-                aim = Vec3d.ofCenter(s2).add(cl.getOffsetX() * 0.5, cl.getOffsetY() * 0.5, cl.getOffsetZ() * 0.5);
+            if (aim == null || !tgt.equals(aimFor)) { aim = findAim(mc, tgt, act); aimFor = tgt; aimWait = 0; aimMiss = 0; }
+            if (aim == null) {
+                status = t("Không có góc ngắm rõ để đổ - đứng gần/đổi chỗ...", "No clear line to pour - repositioning...");
+                if (++aimWait > 40) { bad.add(tgt.asLong()); pending.remove(tgt); aimFor = null; }
+                return;
             }
             status = (act == Act.WATERLOG ? t("Đổ nước vào ", "Waterlogging ") : t("Đổ chất lỏng: ", "Pouring: "))
                     + want.getBlock().getName().getString();
-            boolean ok2 = Motion.lookAt(p, aim, cfg.turnSpeed());
+            boolean ok2 = Motion.lookAt(p, aim.point, cfg.turnSpeed());
             boolean same2 = Math.abs(p.getYaw() - lastYaw) < 0.05f && Math.abs(p.getPitch() - lastPitch) < 0.05f;
             lastYaw = p.getYaw();
             lastPitch = p.getPitch();
             if (!ok2 || !same2) return;
+            BlockHitResult real = crosshair(mc);
+            boolean right = real.getType() == HitResult.Type.BLOCK
+                    && (act == Act.WATERLOG ? real.getBlockPos().equals(tgt)
+                                            : real.getBlockPos().offset(real.getSide()).equals(tgt));
+            if (!right) {                                   // chưa trúng đúng ô -> KHÔNG đổ, tính lại điểm ngắm
+                if (++aimMiss > 12) { aim = null; aimFor = null; }
+                return;
+            }
             Motion.sneak(false);
             long key = tgt.asLong();
             if (tries.merge(key, 1, Integer::sum) > 4) {    // thử mãi không được -> bỏ ô này
@@ -862,6 +977,8 @@ public final class LitematicaBuilder extends Task {
             p.swingHand(Hand.MAIN_HAND);
             placeCooldown = cfg.placeWait() + 2;
             pending.remove(tgt);
+            aim = null;
+            aimFor = null;
             scanCooldown = Math.min(scanCooldown, 8);        // quét lại sớm để kiểm tra đã đổ được chưa
             return;
         }
@@ -881,9 +998,15 @@ public final class LitematicaBuilder extends Task {
             click = plan.face.getOpposite();
             hitVec = plan.hit;
         } else {
-            sup = tgt.offset(face);
-            click = face.getOpposite();
-            hitVec = Vec3d.ofCenter(sup).add(click.getOffsetX() * 0.5, click.getOffsetY() * 0.5, click.getOffsetZ() * 0.5);
+            if (aim == null || !tgt.equals(aimFor)) { aim = findAim(mc, tgt, Act.PLACE); aimFor = tgt; aimWait = 0; aimMiss = 0; }
+            if (aim == null) {
+                status = t("Không có góc ngắm rõ để đặt - đứng gần/đổi chỗ...", "No clear line to place - repositioning...");
+                if (++aimWait > 40) { bad.add(tgt.asLong()); pending.remove(tgt); aimFor = null; }
+                return;
+            }
+            sup = aim.sup;
+            click = aim.click;
+            hitVec = aim.point;
         }
         status = t("Đang đặt ", "Placing ") + want.getBlock().getName().getString() + " (layer " + (layer + 1) + "/" + layers + ")"
                 + (plan != null ? t(" - chỉnh hướng", " - orienting") : "");
@@ -893,10 +1016,23 @@ public final class LitematicaBuilder extends Task {
             lastYaw = p.getYaw();
             lastPitch = p.getPitch();
             if (!ok || !same) return;                    // đợi server nhận hướng nhìn rồi mới bấm
-        } else if (!Motion.lookAt(p, hitVec, cfg.turnSpeed())) {
-            return;
+        } else {
+            boolean ok = Motion.lookAt(p, hitVec, cfg.turnSpeed());
+            boolean same = Math.abs(p.getYaw() - lastYaw) < 0.05f && Math.abs(p.getPitch() - lastPitch) < 0.05f;
+            lastYaw = p.getYaw();
+            lastPitch = p.getPitch();
+            if (!ok || !same) return;
+            // chỉ đặt khi crosshair THẬT đang chỉ đúng mặt block tựa, và bấm đúng điểm crosshair đang chỉ
+            BlockHitResult real = crosshair(mc);
+            if (real.getType() != HitResult.Type.BLOCK || !real.getBlockPos().equals(sup) || real.getSide() != click) {
+                if (++aimMiss > 12) { aim = null; aimFor = null; }
+                return;
+            }
+            hitVec = real.getPos();
         }
         if (!p.isSneaking()) { Motion.sneak(true); return; }   // tránh mở rương/bàn craft khi đặt
+        aim = null;
+        aimFor = null;
         ActionResult res = mc.interactionManager.interactBlock(p, Hand.MAIN_HAND, new BlockHitResult(hitVec, click, sup, false));
         if (res.isAccepted()) p.swingHand(Hand.MAIN_HAND);
         lastPlaced = tgt;

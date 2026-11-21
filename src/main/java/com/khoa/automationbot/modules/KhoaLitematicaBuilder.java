@@ -84,6 +84,21 @@ public class KhoaLitematicaBuilder extends KhoaModule {
         .sliderRange(0, 10)
         .build());
 
+    private final Setting<Double> placeReach = sgGeneral.add(new DoubleSetting.Builder()
+        .name("place-reach")
+        .description("Khoảng cách tối đa từ mắt tới chỗ đặt/đổ. Thấp hơn = đứng sát hơn, giống người chơi thật (vanilla tối đa 4.5).")
+        .defaultValue(3.0)
+        .min(1.5)
+        .max(4.5)
+        .sliderRange(2.0, 4.5)
+        .build());
+
+    private final Setting<Boolean> fluidWalls = sgGeneral.add(new BoolSetting.Builder()
+        .name("fluid-walls-first")
+        .description("Chỉ đổ lava/nước sau khi mọi block chặn quanh ô đó đã đặt xong (tự đặt block chặn trước, kể cả ngoài layer đang hiển thị).")
+        .defaultValue(true)
+        .build());
+
     private final Setting<Boolean> autoBridge = sgLayer.add(new BoolSetting.Builder()
         .name("auto-bridge")
         .description("Chỗ cần đặt mà đi bộ không tới được thì đặt block liên tục (cầu ngang / cột) tới đúng chỗ rồi mới đặt block thật.")
@@ -251,6 +266,8 @@ public class KhoaLitematicaBuilder extends KhoaModule {
         c.autoPillar = autoPillar.get();
         c.placeDelay = placeDelay.get();
         c.placeJitter = placeJitter.get();
+        c.placeReach = placeReach.get();
+        c.fluidWalls = fluidWalls.get();
         c.autoBridge = autoBridge.get();
         c.cleanScaffold = cleanScaffold.get();
         c.placeFluids = placeFluids.get();
