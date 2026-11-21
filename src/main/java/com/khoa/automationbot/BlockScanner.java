@@ -18,6 +18,8 @@ import java.util.function.Predicate;
 public final class BlockScanner {
     public int radius = 16;
     public int budget = 2500;
+    public boolean fullHeight;                     // quét từ minY tới maxY thay vì chỉ ±radius theo Y
+    public int minY = -64, maxY = 320;
     public Predicate<Block> tracker;               // block nào cần lưu vị trí
     public Map<Block, Integer> counts = new HashMap<>();
     public Map<Block, List<BlockPos>> positions = new HashMap<>();
@@ -29,7 +31,7 @@ public final class BlockScanner {
     private Map<Block, Integer> wc = new HashMap<>();
     private Map<Block, List<BlockPos>> wp = new HashMap<>();
     private long cursor, total;
-    private int size;
+    private int size, y0;
     private BlockPos wcenter = BlockPos.ORIGIN;
     private boolean running;
     private int wait;
@@ -51,8 +53,17 @@ public final class BlockScanner {
             if (wait > 0) { wait--; return; }
             int r = Math.max(2, Math.min(64, radius));
             size = 2 * r + 1;
-            total = (long) size * size * size;
             wcenter = mc.player.getBlockPos();
+            int height = size;
+            y0 = wcenter.getY() - r;
+            if (fullHeight) {
+                int lo = Math.max(mc.world.getBottomY(), minY);
+                int hi = Math.min(mc.world.getBottomY() + mc.world.getHeight() - 1, maxY);
+                if (hi < lo) hi = lo;
+                y0 = lo;
+                height = hi - lo + 1;
+            }
+            total = (long) size * size * height;
             cursor = 0;
             wc = new HashMap<>();
             wp = new HashMap<>();
@@ -67,7 +78,7 @@ public final class BlockScanner {
             int idx = (int) cursor;
             int x = wcenter.getX() + idx % size - r;
             int z = wcenter.getZ() + (idx / size) % size - r;
-            int y = wcenter.getY() + idx / (size * size) - r;
+            int y = y0 + idx / (size * size);
             if (mc.world.isOutOfHeightLimit(y)) continue;
             int cx = x >> 4, cz = z >> 4;
             if (cx != lastCx || cz != lastCz) {

@@ -5,10 +5,13 @@ import com.khoa.automationbot.KhoaAddon;
 import com.khoa.automationbot.Motion;
 import com.khoa.automationbot.Task;
 import meteordevelopment.meteorclient.events.world.TickEvent;
-import meteordevelopment.meteorclient.settings.EnumSetting;
-import meteordevelopment.meteorclient.settings.IntSetting;
-import meteordevelopment.meteorclient.settings.Setting;
-import meteordevelopment.meteorclient.settings.SettingGroup;
+import com.khoa.automationbot.Hunger;
+import com.khoa.automationbot.Tools;
+import meteordevelopment.meteorclient.settings.*;
+import net.minecraft.item.Item;
+import net.minecraft.item.Items;
+import java.util.ArrayList;
+import java.util.List;
 import meteordevelopment.meteorclient.systems.modules.Module;
 import meteordevelopment.orbit.EventHandler;
 
@@ -37,6 +40,50 @@ public abstract class KhoaModule extends Module {
         .sliderMax(10)
         .build());
 
+    // ---- sinh tồn: đói -> ăn; hết đồ ăn -> /shop mua thịt bò nướng ----
+    protected final SettingGroup sgSurvival = settings.createGroup("Survival");
+
+    private final Setting<Boolean> autoEat = sgSurvival.add(new BoolSetting.Builder()
+        .name("auto-eat")
+        .description("Tự ăn khi đói; hết đồ ăn thì mua ở /shop.")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Integer> hungerThreshold = sgSurvival.add(new IntSetting.Builder()
+        .name("hunger-threshold")
+        .description("Ăn khi thanh đói <= giá trị này (20 = đầy).")
+        .defaultValue(14)
+        .min(1)
+        .sliderMax(19)
+        .build());
+
+    private final Setting<List<Item>> eatItems = sgSurvival.add(new ItemListSetting.Builder()
+        .name("eat-items")
+        .description("Đồ ăn ưu tiên (cũng là món sẽ mua ở /shop - món đầu tiên).")
+        .defaultValue(new ArrayList<>(List.of(Items.COOKED_BEEF)))
+        .build());
+
+    private final Setting<String> shopCommand = sgSurvival.add(new StringSetting.Builder()
+        .name("shop-command")
+        .description("Lệnh mở shop của server (không có dấu /).")
+        .defaultValue("shop")
+        .build());
+
+    private final Setting<List<String>> foodKeywords = sgSurvival.add(new StringListSetting.Builder()
+        .name("food-keywords")
+        .description("Từ khoá tên món trong /shop (không phân biệt hoa thường).")
+        .defaultValue(new ArrayList<>(List.of("cooked beef", "steak", "thịt bò nướng", "thit bo nuong")))
+        .build());
+
+    private final Setting<Integer> foodAmount = sgSurvival.add(new IntSetting.Builder()
+        .name("food-amount")
+        .description("Số đồ ăn mua mỗi lần.")
+        .defaultValue(16)
+        .min(1)
+        .sliderMax(64)
+        .build());
+
+    protected final Hunger hunger = new Hunger();
     protected Task task;
     private int resumeTimer;
 
@@ -50,6 +97,12 @@ public abstract class KhoaModule extends Module {
     protected void applyConfig(Config c) {
         c.mode = mode.get().name();
         c.actionDelay = actionDelay.get();
+        c.autoEat = autoEat.get();
+        c.hungerThreshold = hungerThreshold.get();
+        c.eatItems = eatItems.get().stream().map(Tools::itemId).toList();
+        c.shopCommand = shopCommand.get();
+        c.foodKeywords = new ArrayList<>(foodKeywords.get());
+        c.foodAmount = foodAmount.get();
     }
 
     protected boolean pausedByUser() { return false; }
@@ -63,6 +116,7 @@ public abstract class KhoaModule extends Module {
         }
         if (mc.player == null || mc.world == null) { toggle(); return; }
         running = this;
+        hunger.reset();
         applyConfig(Config.get());
         task = createTask();
         task.start();
@@ -76,12 +130,14 @@ public abstract class KhoaModule extends Module {
     public void onDeactivate() {
         if (task != null) task.stop();
         task = null;
+        hunger.reset();
         if (running == this) running = null;
         Motion.release();
     }
 
     @Override
     public String getInfoString() {
+        if (hunger.active()) return hunger.status;
         return task == null || task.status == null || task.status.isEmpty() ? null : task.status;
     }
 
@@ -89,6 +145,9 @@ public abstract class KhoaModule extends Module {
     private void onTick(TickEvent.Post event) {
         if (task == null || mc.player == null || mc.world == null) return;
         applyConfig(Config.get());
+
+        // Đói: ăn / đi mua đồ ăn trước, task chính tạm nhường
+        if (hunger.tick(mc)) return;
 
         // An toàn: tạm dừng khi sắp chết
         if (!mc.player.isAlive() || mc.player.getHealth() <= 4f) {

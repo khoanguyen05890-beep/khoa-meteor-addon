@@ -14,12 +14,14 @@ public final class Motion {
     public static void forward(boolean v) { if (mc().options != null) mc().options.forwardKey.setPressed(v); }
     public static void jump(boolean v) { if (mc().options != null) mc().options.jumpKey.setPressed(v); }
     public static void sneak(boolean v) { if (mc().options != null) mc().options.sneakKey.setPressed(v); }
+    public static void use(boolean v) { if (mc().options != null) mc().options.useKey.setPressed(v); }
 
     public static void release() {
         if (mc().options == null) return;
         mc().options.forwardKey.setPressed(false);
         mc().options.jumpKey.setPressed(false);
         mc().options.sneakKey.setPressed(false);
+        mc().options.useKey.setPressed(false);
     }
 
     /** Xoay dần tới (yaw, pitch). Trả về true nếu đã gần đủ chính xác. */

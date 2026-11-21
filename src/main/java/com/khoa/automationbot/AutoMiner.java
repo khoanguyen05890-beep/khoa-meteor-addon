@@ -107,6 +107,9 @@ public final class AutoMiner extends Task {
             return;
         }
         scanner.radius = cfg.mineRadius;
+        scanner.fullHeight = cfg.fullHeight;
+        scanner.minY = cfg.mineMinY;
+        scanner.maxY = cfg.mineMaxY;
 
         switch (phase) {
             case SEARCH -> {
@@ -167,10 +170,19 @@ public final class AutoMiner extends Task {
     private boolean planPath(MinecraftClient mc) {
         final BlockPos tgt = target;
         final Vec3d c = Vec3d.ofCenter(tgt);
-        Path path = Path.find(mc.world, mc.player.getBlockPos(), n -> {
-            Vec3d eye = new Vec3d(n.getX() + 0.5, n.getY() + 1.62, n.getZ() + 0.5);
-            return eye.squaredDistanceTo(c) <= 3.6 * 3.6 && !n.equals(tgt) && !n.up().equals(tgt);
-        }, tgt, 4000);
+        final boolean dig = Config.get().digThrough;
+        Path path;
+        if (dig) {
+            // đào xuyên: đứng sao cho block đích nằm sát chân/đầu
+            path = Path.find(mc.world, mc.player.getBlockPos(), n ->
+                    (tgt.getManhattanDistance(n) == 1 || tgt.getManhattanDistance(n.up()) == 1)
+                            && !n.equals(tgt) && !n.up().equals(tgt), tgt, 9000, true);
+        } else {
+            path = Path.find(mc.world, mc.player.getBlockPos(), n -> {
+                Vec3d eye = new Vec3d(n.getX() + 0.5, n.getY() + 1.62, n.getZ() + 0.5);
+                return eye.squaredDistanceTo(c) <= 3.6 * 3.6 && !n.equals(tgt) && !n.up().equals(tgt);
+            }, tgt, 4000);
+        }
         if (path == null) return false;
         walker.set(path);
         return true;
@@ -179,7 +191,8 @@ public final class AutoMiner extends Task {
     private BlockPos pickTarget(MinecraftClient mc) {
         ClientWorld w = mc.world;
         Vec3d pp = mc.player.getEntityPos();
-        double max = Config.get().mineRadius;
+        Config cfg = Config.get();
+        double max = cfg.mineRadius;
         BlockPos best = null;
         double bd = Double.MAX_VALUE;
         for (var e : scanner.positions.entrySet()) {
@@ -188,9 +201,13 @@ public final class AutoMiner extends Task {
             for (BlockPos b : list) {
                 if (bad.contains(b.asLong())) continue;
                 double d = Tools.distSq(b, pp);
-                if (d > max * max || d >= bd) continue;
+                if (d >= bd) continue;
+                if (cfg.fullHeight) {
+                    double hx = b.getX() + 0.5 - pp.x, hz = b.getZ() + 0.5 - pp.z;
+                    if (hx * hx + hz * hz > max * max) continue;   // theo bán kính ngang, bất kể độ cao
+                } else if (d > max * max) continue;
                 if (w.getBlockState(b).getBlock() != e.getKey()) continue;
-                if (!exposed(w, b)) continue;
+                if (!cfg.digThrough && !exposed(w, b)) continue;
                 bd = d;
                 best = b;
             }
@@ -222,7 +239,7 @@ public final class AutoMiner extends Task {
         if (hit.getType() != HitResult.Type.BLOCK) { markBad(target); return; }
         BlockPos hp = hit.getBlockPos();
         if (!hp.equals(cur)) {
-            if (cfg.onlyMineSelected) { markBad(target); return; }
+            if (cfg.onlyMineSelected && !cfg.digThrough) { markBad(target); return; }
             cur = hp;
             return;
         }
@@ -231,6 +248,7 @@ public final class AutoMiner extends Task {
             return;
         }
         BlockState st = w.getBlockState(cur);
+        if (cfg.digThrough && !Path.safeToDig(w, cur)) { markBad(target); return; }   // sát dung nham / cát rơi
         if (!Tools.selectTool(mc, st, cfg.autoTool)) {
             pause();
             status = t("Cần công cụ phù hợp / công cụ sắp hỏng", "Need a suitable tool / tool nearly broken");

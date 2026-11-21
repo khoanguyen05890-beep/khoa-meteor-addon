@@ -9,6 +9,8 @@ import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.Item;
 import net.minecraft.item.Items;
+import net.minecraft.registry.Registries;
+import net.minecraft.util.Identifier;
 import net.minecraft.screen.slot.SlotActionType;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
@@ -53,6 +55,18 @@ public final class LitematicaBuilder extends Task {
     private BlockState lastDesired;
     private int scanCooldown, placeCooldown, verifyWait, idle;
 
+    // vật liệu: quét layer -> thiếu thì lấy trong rương -> /ah
+    private record Req(Item item, int need) {}
+    private final Deque<Req> queue = new ArrayDeque<>();
+    private final Map<Item, Long> unobtainable = new HashMap<>();
+    private Provision supply;
+    private Item supplyItem;
+    private boolean layerChecked;
+    private long now;
+
+    // dựng cột (pillar) để lên layer cao
+    private int pillarMode, pillarTicks;   // 0 = tắt, 1 = đi tới chân cột, 2 = đang nhảy-đặt block
+
     @Override public String name() { return "Litematica Builder"; }
 
     @Override
@@ -64,7 +78,17 @@ public final class LitematicaBuilder extends Task {
         goalTarget = lastPlaced = null;
         idle = 0;
         analyzedOnce = false;
+        queue.clear();
+        unobtainable.clear();
+        supply = null;
+        layerChecked = false;
+        pillarMode = 0;
+        now = 0;
         if (!loadBox()) { state = State.ERROR; status = error; return; }
+        // tự chọn layer theo độ cao đang đứng
+        MinecraftClient mc = MinecraftClient.getInstance();
+        Config cfg = Config.get();
+        if (cfg.autoLayer && mc.player != null) layer = mc.player.getBlockY() + cfg.layerOffset - minY;
         layer = Math.max(0, Math.min(layer, layers - 1));
         beginAnalysis();
     }
@@ -76,10 +100,12 @@ public final class LitematicaBuilder extends Task {
             error = t("Chưa cài Litematica", "Litematica is not installed");
             return false;
         }
+        LitematicaBridge.ensureRendering();
         int[] b = LitematicaBridge.box();
         if (b == null) {
-            error = t("Chưa chọn placement trong Litematica (M > Loaded schematics > Placements)",
-                    "No schematic placement selected in Litematica") + " [" + LitematicaBridge.lastError + "]";
+            error = t("Không đọc được schematic của Litematica (chọn placement + bật Render Schematic + đứng gần)",
+                    "Cannot read the Litematica schematic (select a placement, enable Render Schematic, stand near it)")
+                    + " [" + LitematicaBridge.lastError + "]";
             return false;
         }
         schem = LitematicaBridge.schematicWorld();
@@ -136,7 +162,7 @@ public final class LitematicaBuilder extends Task {
             analyzing = false;
             analyzedOnce = true;
             placedSince = 0;
-            analysisCooldown = 400;
+            analysisCooldown = totalBlocks() == 0 ? 40 : 400;
         }
     }
 
@@ -156,6 +182,9 @@ public final class LitematicaBuilder extends Task {
 
     private void resetLayer() {
         pending.clear();
+        layerChecked = false;
+        queue.clear();
+        pillarMode = 0;
         scanCooldown = 0;
         idle = 0;
         walker.clear();
@@ -176,6 +205,13 @@ public final class LitematicaBuilder extends Task {
             status = t("Đang phân tích schematic: ", "Analyzing schematic: ") + (int) (analysisProgress() * 100) + "%";
             return;
         }
+        if (totalBlocks() == 0) {
+            Motion.release();
+            status = t("Schematic rỗng: bật Render Schematic, đứng gần placement (đang thử lại...)",
+                    "Schematic is empty: enable Render Schematic and stand near the placement (retrying...)");
+            return;
+        }
+        now++;
         buildStep(mc);
     }
 
@@ -199,6 +235,134 @@ public final class LitematicaBuilder extends Task {
         Vec3d pp = mc.player.getEntityPos();
         tmp.sort(Comparator.comparingDouble(b -> Tools.distSq(b, pp)));
         for (int i = 0; i < tmp.size() && i < 2000; i++) pending.add(tmp.get(i));
+        if (!layerChecked && !pending.isEmpty()) { layerChecked = true; queueSupplies(mc); }
+    }
+
+    private boolean blocked(Item it) {
+        Long t0 = unobtainable.get(it);
+        return t0 != null && now - t0 < 2400;      // thử lại sau ~2 phút
+    }
+
+    private int needOf(Item it) {
+        int n = 0;
+        for (BlockPos pos : pending) if (schem.getBlockState(pos).getBlock().asItem() == it) n++;
+        return n;
+    }
+
+    /** "Quét riêng" vật liệu của layer: thiếu món nào thì xếp hàng đi lấy. */
+    private void queueSupplies(MinecraftClient mc) {
+        Config cfg = Config.get();
+        if (!cfg.autoSupply || mc.player.isCreative()) return;
+        Map<Item, Integer> need = new LinkedHashMap<>();
+        for (BlockPos pos : pending) {
+            Item it = schem.getBlockState(pos).getBlock().asItem();
+            if (it != Items.AIR) need.merge(it, 1, Integer::sum);
+        }
+        for (var e : need.entrySet()) {
+            if (Tools.count(mc.player, e.getKey()) < e.getValue() && !blocked(e.getKey())) {
+                queue.add(new Req(e.getKey(), e.getValue()));
+            }
+        }
+    }
+
+    private boolean startNextSupply(MinecraftClient mc) {
+        Config cfg = Config.get();
+        while (!queue.isEmpty()) {
+            Req r = queue.poll();
+            if (blocked(r.item())) continue;
+            int have = Tools.count(mc.player, r.item());
+            if (have >= r.need()) continue;
+            supplyItem = r.item();
+            supply = Provision.item(r.item(), Math.max(1, Math.min(cfg.supplyMax, r.need() - have)));
+            Motion.release();
+            walker.clear();
+            goalTarget = null;
+            return true;
+        }
+        return false;
+    }
+
+    private Item scaffoldItem(ClientPlayerEntity p) {
+        for (String id : Config.get().scaffoldItems) {
+            Identifier i = Identifier.tryParse(id);
+            if (i == null || !Registries.ITEM.containsId(i)) continue;
+            Item it = Registries.ITEM.get(i);
+            if (Tools.findItem(p, it) >= 0) return it;
+        }
+        return null;
+    }
+
+    /** Cột đứng hợp lệ: schematic không cần block ở cột đó và phía trên còn trống để nhảy lên. */
+    private boolean pillarOk(ClientWorld w, BlockPos n, BlockPos g) {
+        double dx = n.getX() - g.getX(), dz = n.getZ() - g.getZ();
+        if (dx * dx + dz * dz > 9 || (n.getX() == g.getX() && n.getZ() == g.getZ())) return false;
+        BlockPos.Mutable m = new BlockPos.Mutable();
+        for (int y = n.getY(); y <= g.getY(); y++) {
+            m.set(n.getX(), y, n.getZ());
+            if (!schem.getBlockState(m).isAir()) return false;
+            if (y >= n.getY() + 2 && !Path.passable(w, m)) return false;
+        }
+        return true;
+    }
+
+    private boolean startPillar(MinecraftClient mc, BlockPos g) {
+        ClientPlayerEntity p = mc.player;
+        ClientWorld w = mc.world;
+        if (scaffoldItem(p) == null) {
+            pause();
+            status = t("Cần block để dựng cột lên layer cao (đặt cobblestone/dirt vào túi) rồi Resume",
+                    "Need scaffold blocks to climb to the next layer (put cobblestone/dirt in inventory) then Resume");
+            return true;
+        }
+        Path pp = Path.find(w, p.getBlockPos(), n -> pillarOk(w, n, g), g, 3000);
+        if (pp == null || !pp.complete) return false;
+        walker.set(pp);
+        pillarMode = 1;
+        pillarTicks = 0;
+        goalTarget = g;
+        return true;
+    }
+
+    /** false = thất bại. */
+    private boolean pillarStep(MinecraftClient mc, BlockPos g) {
+        ClientPlayerEntity p = mc.player;
+        ClientWorld w = mc.world;
+        if (++pillarTicks > 700) return false;
+        if (pillarMode == 1) {
+            status = t("Đi tới chỗ dựng cột...", "Moving to the pillar spot...");
+            Walker.Result r = walker.tick(mc);
+            if (r == Walker.Result.FAILED) return false;
+            if (r == Walker.Result.DONE) { walker.clear(); Motion.forward(false); pillarMode = 2; }
+            return true;
+        }
+        Item sc = scaffoldItem(p);
+        if (sc == null) {
+            Motion.release();
+            pause();
+            status = t("Hết block dựng cột - bổ sung rồi Resume", "Out of scaffold blocks - add more and Resume");
+            return true;
+        }
+        if (p.getEyePos().squaredDistanceTo(Vec3d.ofCenter(g)) <= 3.6 * 3.6) {
+            pillarMode = 0;
+            Motion.jump(false);
+            walker.clear();
+            goalTarget = null;
+            return true;
+        }
+        status = t("Đang dựng cột lên layer ", "Pillaring up to layer ") + (layer + 1);
+        if (!ensureHeld(mc, p, sc)) { Motion.jump(false); return true; }
+        Motion.turn(p, p.getYaw(), 90f, 90f);
+        Motion.forward(false);
+        Motion.sneak(false);
+        BlockPos under = BlockPos.ofFloored(p.getX(), p.getY(), p.getZ()).down();
+        BlockPos sup = under.down();
+        if (w.getBlockState(under).isReplaceable() && Path.floorOk(w, sup) && p.getPitch() > 80f) {
+            Vec3d hv = Vec3d.ofCenter(sup).add(0, 0.5, 0);
+            ActionResult res = mc.interactionManager.interactBlock(p, Hand.MAIN_HAND, new BlockHitResult(hv, Direction.UP, sup, false));
+            if (res.isAccepted()) p.swingHand(Hand.MAIN_HAND);
+        }
+        Motion.jump(true);
+        return true;
     }
 
     private Direction supportFace(ClientWorld w, BlockPos pos) {
@@ -225,6 +389,16 @@ public final class LitematicaBuilder extends Task {
         ClientWorld w = mc.world;
         Config cfg = Config.get();
 
+        if (supply != null) {
+            status = supply.status;
+            if (!supply.tick(mc)) {
+                if (!supply.success) unobtainable.put(supplyItem, now);
+                supply = null;
+                scanCooldown = 0;
+            }
+            return;
+        }
+
         if (lastPlaced != null) {
             if (w.getBlockState(lastPlaced).getBlock() == lastDesired.getBlock()) {
                 Stats.built++;
@@ -246,17 +420,19 @@ public final class LitematicaBuilder extends Task {
                 status = t("Layer " + (layer + 1) + " đã xong - bấm Next Layer", "Layer " + (layer + 1) + " done - press Next Layer");
                 return;
             }
-            if (layer < layers - 1) { layer++; scanCooldown = 0; return; }
+            if (layer < layers - 1) { layer++; layerChecked = false; scanCooldown = 0; return; }
             state = State.DONE;
             status = t("Hoàn thành công trình!", "Build complete!");
             return;
         }
 
+        if (startNextSupply(mc)) return;        // vật liệu của layer còn thiếu -> đi lấy trước
+
         // Chọn mục tiêu khả thi gần nhất
         BlockPos tgt = null;
         BlockState want = null;
         Direction face = null;
-        String missName = null;
+        Item missItem = null;
         int checked = 0;
         for (int i = 0; i < pending.size() && checked < 150; i++) {
             BlockPos pos = pending.get(i);
@@ -268,18 +444,25 @@ public final class LitematicaBuilder extends Task {
             Item it = ws.getBlock().asItem();
             if (it == Items.AIR) { bad.add(pos.asLong()); pending.remove(i--); continue; }
             checked++;
-            if (Tools.findItem(p, it) < 0) { missName = it.getName().getString(); continue; }
+            if (Tools.findItem(p, it) < 0) { missItem = it; continue; }
             Direction d = supportFace(w, pos);
             if (d == null) continue;
             tgt = pos; want = ws; face = d;
             break;
         }
 
+        if (tgt == null && startNextSupply(mc)) return;
         if (tgt == null) {
             Motion.forward(false);
-            if (missName != null) {
+            if (missItem != null) {
+                if (cfg.autoSupply && !p.isCreative() && !blocked(missItem)) {
+                    queue.add(new Req(missItem, Math.max(1, needOf(missItem))));
+                    status = t("Thiếu vật liệu - đi lấy: ", "Missing material - fetching: ") + missItem.getName().getString();
+                    return;
+                }
                 pause();
-                status = t("Thiếu vật liệu: ", "Missing material: ") + missName + t(" - bổ sung rồi Resume", " - add it and press Resume");
+                status = t("Thiếu vật liệu: ", "Missing material: ") + missItem.getName().getString()
+                        + t(" - bổ sung rồi Resume", " - add it and press Resume");
                 return;
             }
             status = t("Chờ điểm tựa để đặt block...", "Waiting for a support block...");
@@ -295,12 +478,27 @@ public final class LitematicaBuilder extends Task {
         if (far || inside) {
             Motion.sneak(false);
             final BlockPos g = tgt;
+            if (pillarMode != 0) {
+                if (!pillarStep(mc, g)) {
+                    pillarMode = 0;
+                    Motion.jump(false);
+                    walker.clear();
+                    goalTarget = null;
+                    bad.add(g.asLong());
+                    pending.remove(g);
+                }
+                return;
+            }
             if (!g.equals(goalTarget) || !walker.active()) {
                 Path path = Path.find(w, feet, n -> {
                     Vec3d eye = new Vec3d(n.getX() + 0.5, n.getY() + 1.62, n.getZ() + 0.5);
                     return eye.squaredDistanceTo(Vec3d.ofCenter(g)) <= 3.8 * 3.8 && !n.equals(g) && !n.up().equals(g);
                 }, g, 4000);
-                if (path == null) { bad.add(g.asLong()); pending.remove(g); return; }
+                boolean needUp = g.getY() - feet.getY() >= 2;
+                if (path == null || (!path.complete && needUp)) {
+                    if (cfg.autoPillar && needUp && startPillar(mc, g)) return;   // dựng cột lên cao
+                    if (path == null) { bad.add(g.asLong()); pending.remove(g); return; }
+                }
                 walker.set(path);
                 goalTarget = g;
             }

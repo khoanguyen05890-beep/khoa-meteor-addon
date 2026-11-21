@@ -28,6 +28,34 @@ public class KhoaAutoMiner extends KhoaModule {
         .sliderMax(64)
         .build());
 
+    private final Setting<Boolean> fullHeight = sgGeneral.add(new BoolSetting.Builder()
+        .name("scan-full-height")
+        .description("Quét block từ mặt đất xuống tận bedrock và lên tới giới hạn độ cao (bán kính chỉ tính theo chiều ngang).")
+        .defaultValue(true)
+        .build());
+
+    private final Setting<Integer> minY = sgGeneral.add(new IntSetting.Builder()
+        .name("min-y")
+        .description("Độ cao thấp nhất để quét (tự bị giới hạn bởi đáy thế giới/bedrock).")
+        .defaultValue(-64)
+        .range(-2032, 2032)
+        .sliderRange(-64, 320)
+        .build());
+
+    private final Setting<Integer> maxY = sgGeneral.add(new IntSetting.Builder()
+        .name("max-y")
+        .description("Độ cao cao nhất để quét (tự bị giới hạn bởi giới hạn xây dựng).")
+        .defaultValue(320)
+        .range(-2032, 2032)
+        .sliderRange(-64, 320)
+        .build());
+
+    private final Setting<Boolean> digThrough = sgGeneral.add(new BoolSetting.Builder()
+        .name("dig-through")
+        .description("Tự đào đường xuyên đá/đất tới block ở sâu (tránh dung nham, nước, bedrock).")
+        .defaultValue(true)
+        .build());
+
     private final Setting<Boolean> onlySelected = sgGeneral.add(new BoolSetting.Builder()
         .name("only-selected")
         .description("Chỉ đào block đã chọn (bỏ qua block bị vật cản che).")
@@ -70,6 +98,10 @@ public class KhoaAutoMiner extends KhoaModule {
     protected void applyConfig(Config c) {
         super.applyConfig(c);
         c.mineRadius = radius.get();
+        c.fullHeight = fullHeight.get();
+        c.mineMinY = minY.get();
+        c.mineMaxY = maxY.get();
+        c.digThrough = digThrough.get();
         c.onlyMineSelected = onlySelected.get();
         c.autoTool = autoTool.get();
         c.autoCollect = autoCollect.get();
