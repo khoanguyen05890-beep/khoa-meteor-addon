@@ -1,7 +1,17 @@
-# KHOA AUTOMATION BOT — Meteor addon (Minecraft 1.21.11) — v2.5.3
+# KHOAMOXE — Meteor addon (Minecraft 1.21.11) — v2.5.5
 
 Cột **Khoa** trong ClickGUI: `khoa-auto-miner`, `khoa-auto-sand`, `khoa-item-collector`, `khoa-litematica-builder`.
 Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa chạy tại một thời điểm.
+
+## Sửa lỗi 2.5.5 — KEEP_SHULKER (mua shulker/ender chest, đặt, bỏ cát vào)
+- **/shop**: danh mục End Stone / Totem giờ nhận theo ICON (end_stone, totem) chứ không chỉ theo tên chữ; không tìm thấy thì báo tên các ô trong menu để chỉnh `end-category`.
+- **Tìm chỗ đặt rộng hơn** (±3 ô, lệch ±1 tầng); chỗ quá chật thì tự đi tới nơi thoáng rồi đặt.
+- **Đặt rương không còn phụ thuộc crosshair**: ngắm vào mặt trên block tựa rồi bấm thẳng.
+- **Đập shulker/ender chest**: tự cầm công cụ nhanh nhất trong cả túi (không chỉ hotbar). Ender chest chỉ đập lấy lại khi có cúp **Silk Touch** (không có thì để lại tại chỗ, tránh mất 40 giây đập vô ích).
+- Bán/cất lỗi thì báo lý do ra chat (`[khoamoxe] ...`); thử lại sau ~20 giây.
+
+## Mới ở 2.5.4 — hạn chế đào xuống (`max-dig-down`, mặc định 1)
+- Chỉ đào block không thấp hơn mốc chân quá `max-dig-down` block (1 = chỉ lớp sàn, không khoét hố sâu; 0 = không đào sàn). Mốc tự cập nhật khi leo cồn, đi tìm cát xa hoặc thoát kẹt. Cát đè lên đầu vẫn được đào để khỏi ngạt. Xẻng 3x3 chạm cạnh bên có thể lấy thêm 1 hàng dưới do server đào cả vùng.
 
 ## Mới ở 2.5.3 — Auto Sand: đào GẦN NHẤT và đào NHANH (`fast-mine`, mặc định bật)
 - **Quét tức thời quanh người** (±7 ngang, -5..+4 dọc): có mục tiêu ngay, không phải chờ vòng quét lớn (~5 giây) như trước. Vòng quét xa chỉ dùng khi hết cát gần.
@@ -90,7 +100,7 @@ Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa 
 
 ## Build
 Push lên GitHub, workflow `build` chạy rồi đăng jar + `build.log` vào Releases.
-Local: JDK 21 + Gradle 9.x -> `gradle build` -> `build/libs/khoa-automation-bot-2.3.1.jar`.
+Local: JDK 21 + Gradle 9.x -> `gradle build` -> `build/libs/khoamoxe-2.3.1.jar`.
 
 ## Lưu ý
 Mã chưa được biên dịch/chạy thử trong môi trường có Minecraft (đã kiểm tra cú pháp). Nếu build lỗi, gửi `build.log`.

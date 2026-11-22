@@ -33,17 +33,18 @@ import static com.khoa.automationbot.Lang.t;
  *  mở ender chest, bỏ shulker vào, rồi (tuỳ chọn) đập ender chest lấy lại.
  */
 public final class SandStash {
-    private enum S { START, BUY_SHULKER, BUY_ENDER, SPOT, PLACE_ENDER, PLACE_SHULKER, OPEN_SHULKER, FILL,
+    private enum S { START, BUY_SHULKER, BUY_ENDER, SPOT, RELOCATE, PLACE_ENDER, PLACE_SHULKER, OPEN_SHULKER, FILL,
         BREAK_SHULKER, PICKUP, OPEN_ENDER, STORE, BREAK_ENDER, PICKUP_ENDER }
 
     public boolean done, success;
     public String status = "";
 
     private S s = S.START;
-    private int life, timer, placeTimer, stall, lastCount = -1;
+    private int life, timer, placeTimer, stall, lastCount = -1, relocations;
     private BlockPos enderPos, boxPos;
     private Provision buy;
     private final ItemCollector collector = new ItemCollector();
+    private final Walker walker = new Walker();
 
     public SandStash() { collector.pickAll = true; }
 
@@ -55,6 +56,7 @@ public final class SandStash {
         success = ok;
         status = t(vi, en);
         collector.stop();
+        walker.clear();
         Motion.release();
     }
 
@@ -82,45 +84,59 @@ public final class SandStash {
         return false;
     }
 
-    private List<BlockPos> findSpots(MinecraftClient mc) {
-        ClientPlayerEntity p = mc.player;
-        ClientWorld w = mc.world;
-        BlockPos pb = p.getBlockPos();
+    /** Ô trống có sàn đặc, còn trống phía trên (nắp shulker), trong tầm với từ mắt `eye`. */
+    private List<BlockPos> spotsAround(ClientWorld w, BlockPos base, Vec3d eye, int r) {
         List<BlockPos> out = new ArrayList<>();
-        for (int dx = -2; dx <= 2; dx++) {
-            for (int dz = -2; dz <= 2; dz++) {
+        for (int dx = -r; dx <= r; dx++) {
+            for (int dz = -r; dz <= r; dz++) {
                 if (dx == 0 && dz == 0) continue;
-                BlockPos cell = pb.add(dx, 0, dz);
-                if (!w.getBlockState(cell).isAir() || !w.getBlockState(cell.up()).isAir()) continue;
-                if (!Path.floorOk(w, cell.down())) continue;
-                Vec3d top = new Vec3d(cell.getX() + 0.5, cell.getY(), cell.getZ() + 0.5);
-                if (p.getEyePos().squaredDistanceTo(top) > 3.6 * 3.6) continue;
-                out.add(cell);
+                for (int dy = -1; dy <= 1; dy++) {
+                    BlockPos cell = base.add(dx, dy, dz);
+                    if (!w.getBlockState(cell).isAir() || !w.getBlockState(cell.up()).isAir()) continue;
+                    if (!Path.floorOk(w, cell.down())) continue;
+                    Vec3d top = new Vec3d(cell.getX() + 0.5, cell.getY(), cell.getZ() + 0.5);
+                    if (eye.squaredDistanceTo(top) > 3.6 * 3.6) continue;
+                    out.add(cell);
+                }
             }
         }
-        Vec3d pp = p.getEntityPos();
-        out.sort(Comparator.comparingDouble(b -> Tools.distSq(b, pp)));
+        Vec3d c = Vec3d.ofBottomCenter(base);
+        out.sort(Comparator.comparingDouble(b -> Tools.distSq(b, c)));
         return out;
     }
 
-    /** 0 = đang làm, 1 = block đã có mặt tại cell, -1 = thất bại. */
+    private List<BlockPos> findSpots(MinecraftClient mc) {
+        return spotsAround(mc.world, mc.player.getBlockPos(), mc.player.getEyePos(), 3);
+    }
+
+    /** Chỗ quanh đây quá chật: đi tới nơi thoáng hơn (có >= 3 ô đặt được). */
+    private boolean startRelocate(MinecraftClient mc) {
+        final ClientWorld w = mc.world;
+        final BlockPos o = mc.player.getBlockPos();
+        Path path = Path.find(w, o, n -> n.getManhattanDistance(o) >= 3 && Path.standable(w, n)
+                && spotsAround(w, n, new Vec3d(n.getX() + 0.5, n.getY() + 1.62, n.getZ() + 0.5), 2).size() >= 3, null, 1500);
+        if (path == null || !path.complete || path.nodes.isEmpty()) return false;
+        walker.set(path);
+        go(S.RELOCATE);
+        return true;
+    }
+
+    /** 0 = đang làm, 1 = block đã có mặt tại cell, -1 = thất bại. Không phụ thuộc crosshair: ngắm rồi bấm thẳng vào mặt trên của block tựa. */
     private int place(MinecraftClient mc, BlockPos cell, Predicate<ItemStack> pred) {
         ClientPlayerEntity p = mc.player;
         ClientWorld w = mc.world;
         if (!w.getBlockState(cell).isAir()) return 1;
-        if (++placeTimer > 100) return -1;
+        if (++placeTimer > 120) return -1;
         int slot = findSlot(p, pred);
         if (slot < 0) return -1;
         if (!holdSlot(mc, p, slot)) return 0;
+        Motion.sneak(false);
         BlockPos sup = cell.down();
         Vec3d aim = new Vec3d(sup.getX() + 0.5, sup.getY() + 1.0, sup.getZ() + 0.5);
         if (!Motion.lookAt(p, aim, Config.get().turnSpeed())) return 0;
-        if (mc.crosshairTarget instanceof BlockHitResult bhr && bhr.getType() == HitResult.Type.BLOCK
-                && bhr.getBlockPos().equals(sup) && bhr.getSide() == Direction.UP) {
-            if (placeTimer % 4 == 0) {
-                mc.interactionManager.interactBlock(p, Hand.MAIN_HAND, bhr);
-                p.swingHand(Hand.MAIN_HAND);
-            }
+        if (placeTimer % 3 == 0) {
+            mc.interactionManager.interactBlock(p, Hand.MAIN_HAND, new BlockHitResult(aim, Direction.UP, sup, false));
+            p.swingHand(Hand.MAIN_HAND);
         }
         return 0;
     }
@@ -141,14 +157,30 @@ public final class SandStash {
         return false;
     }
 
-    /** true = block đã biến mất. Tự chọn công cụ (auto tool). */
-    private boolean breakBlock(MinecraftClient mc, BlockPos pos) {
+    /** Cầm công cụ nhanh nhất trong cả túi (tuỳ chọn: bắt buộc có Silk Touch). false = đang hoán đổi / chưa có. */
+    private boolean equipBest(MinecraftClient mc, ClientPlayerEntity p, BlockState st, boolean silk) {
+        PlayerInventory inv = p.getInventory();
+        int best = -1;
+        float bs = 1.0f;
+        for (int i = 0; i < 36; i++) {
+            ItemStack it = inv.getStack(i);
+            if (it.isEmpty() || Tools.lowDurability(it)) continue;
+            if (silk && !SandUtil.hasEnchant(it, "silk_touch")) continue;
+            float sp = it.getMiningSpeedMultiplier(st);
+            if (sp > bs) { bs = sp; best = i; }
+        }
+        if (best < 0) return !silk;                      // không có công cụ nào nhanh hơn tay: dùng tay
+        return holdSlot(mc, p, best);
+    }
+
+    /** true = block đã biến mất. Tự chọn công cụ tốt nhất trong túi (silk = bắt buộc cúp Silk Touch). */
+    private boolean breakBlock(MinecraftClient mc, BlockPos pos, boolean silk) {
         ClientPlayerEntity p = mc.player;
         ClientWorld w = mc.world;
         BlockState st = w.getBlockState(pos);
         if (st.isAir()) return true;
         if (GuiUtil.open(p) != null) { p.closeHandledScreen(); return false; }
-        Tools.selectTool(mc, st, true);
+        if (!equipBest(mc, p, st, silk)) return false;
         Vec3d c = Vec3d.ofCenter(pos);
         if (!Motion.lookAt(p, c, Config.get().turnSpeed())) return false;
         Vec3d e = p.getEyePos();
@@ -204,12 +236,20 @@ public final class SandStash {
                 List<BlockPos> spots = findSpots(mc);
                 if (spots.size() < 2) {
                     status = t("Tìm chỗ trống để đặt rương...", "Looking for a free spot to place the chests...");
-                    if (timer > 40) finish(false, "Không có chỗ đặt ender chest + shulker", "No room to place the ender chest and shulker");
+                    if (timer > 10) {
+                        if (relocations < 3 && startRelocate(mc)) { relocations++; return !done; }
+                        if (timer > 40) finish(false, "Không có chỗ đặt ender chest + shulker", "No room to place the ender chest and shulker");
+                    }
                     return !done;
                 }
                 enderPos = spots.get(0);
                 boxPos = spots.get(1);
                 go(S.PLACE_ENDER);
+            }
+            case RELOCATE -> {
+                status = t("Đi tới chỗ thoáng để đặt rương", "Moving to an open spot for the chests");
+                Walker.Result r = walker.tick(mc);
+                if (r != Walker.Result.RUNNING || timer > 400) { walker.clear(); Motion.release(); go(S.SPOT); }
             }
             case PLACE_ENDER -> {
                 status = t("Đặt ender chest", "Placing the ender chest");
@@ -249,7 +289,7 @@ public final class SandStash {
             }
             case BREAK_SHULKER -> {
                 status = t("Đập shulker (auto tool)", "Breaking the shulker box (auto tool)");
-                if (breakBlock(mc, boxPos)) go(S.PICKUP);
+                if (breakBlock(mc, boxPos, false)) go(S.PICKUP);
                 else if (timer > 600) finish(false, "Không đập được shulker", "Could not break the shulker box");
             }
             case PICKUP -> {
@@ -281,8 +321,13 @@ public final class SandStash {
                 GuiUtil.click(mc, h, from, 0, SlotActionType.QUICK_MOVE);
             }
             case BREAK_ENDER -> {
-                status = t("Đập ender chest lấy lại", "Breaking the ender chest to take it back");
-                if (breakBlock(mc, enderPos)) go(S.PICKUP_ENDER);
+                if (findSlot(p, st -> SandUtil.isPickaxe(st) && SandUtil.hasEnchant(st, "silk_touch")) < 0) {
+                    // không có cúp Silk Touch: đập ender chest chỉ rơi obsidian, không lấy lại được -> để nguyên tại chỗ
+                    finish(true, "Đã cất cát (ender chest để lại - không có cúp Silk Touch)", "Sand stored (ender chest left in place - no Silk Touch pickaxe)");
+                    return false;
+                }
+                status = t("Đập ender chest lấy lại (Silk Touch)", "Breaking the ender chest to take it back (Silk Touch)");
+                if (breakBlock(mc, enderPos, true)) go(S.PICKUP_ENDER);
                 else if (timer > 800) finish(true, "Đã cất cát (không đập được ender chest)", "Sand stored (could not break the ender chest)");
             }
             case PICKUP_ENDER -> {

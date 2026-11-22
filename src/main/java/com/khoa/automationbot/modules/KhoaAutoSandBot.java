@@ -56,6 +56,14 @@ public class KhoaAutoSandBot extends KhoaModule {
         .defaultValue(true)
         .build());
 
+    private final Setting<Integer> maxDigDown = sgGeneral.add(new IntSetting.Builder()
+        .name("max-dig-down")
+        .description("Hạn chế đào xuống: chỉ đào block cao hơn mốc chân tối đa bấy nhiêu block (0 = không đào cả sàn đang đứng, 1 = chỉ lớp sàn, không khoét sâu). Mốc tự cập nhật khi leo lên hoặc đi chỗ khác.")
+        .defaultValue(1)
+        .min(0)
+        .sliderMax(6)
+        .build());
+
     private final Setting<Boolean> amethyst3x3 = sgGeneral.add(new BoolSetting.Builder()
         .name("amethyst-3x3")
         .description("Xẻng có tên chứa từ khoá (mặc định 'amethyst') thì đào 3x3: ưu tiên chỗ có nhiều cát nhất và cầm xẻng đó.")
@@ -249,6 +257,7 @@ public class KhoaAutoSandBot extends KhoaModule {
         s.radius = radius.get();
         s.scanHeight = scanHeight.get();
         s.fast = fastMine.get();
+        s.maxDown = maxDigDown.get();
         s.amethyst3x3 = amethyst3x3.get();
         s.shovelKeyword = shovelKeyword.get();
         s.keepMode = fullMode.get() == FullMode.KEEP_SHULKER;

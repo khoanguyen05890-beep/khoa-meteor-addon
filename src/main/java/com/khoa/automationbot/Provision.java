@@ -372,6 +372,33 @@ public final class Provision {
         return GuiUtil.nameMatches(st, Config.get().confirmKeywords);
     }
 
+    /** Danh mục khớp theo TÊN hoặc (với đồ không phải thức ăn) theo ICON: vd "end stone" khớp icon end_stone, "totem" khớp totem_of_undying. */
+    private boolean catMatch(ItemStack st) {
+        if (GuiUtil.nameMatches(st, catKeywords())) return true;
+        if (food || st.isEmpty()) return false;
+        String path = Registries.ITEM.getId(st.getItem()).getPath();
+        for (String k : catKeywords()) {
+            if (k == null || k.isBlank()) continue;
+            String kn = k.toLowerCase(Locale.ROOT).trim().replace(' ', '_');
+            if (path.contains(kn)) return true;
+        }
+        return false;
+    }
+
+    private String menuNames(ScreenHandler h, int n) {
+        StringBuilder sb = new StringBuilder();
+        Set<String> seen = new LinkedHashSet<>();
+        for (int i = 0; i < n && seen.size() < 12; i++) {
+            ItemStack st = h.slots.get(i).getStack();
+            if (st.isEmpty()) continue;
+            String nm = GuiUtil.name(st).trim();
+            if (nm.isEmpty()) nm = Registries.ITEM.getId(st.getItem()).getPath();
+            seen.add(nm);
+        }
+        for (String x : seen) { if (sb.length() > 0) sb.append(", "); sb.append(x); }
+        return sb.toString();
+    }
+
     private int findSlot(ScreenHandler h, java.util.function.Predicate<ItemStack> test) {
         int n = GuiUtil.topCount(h);
         for (int i = 0; i < n; i++) {
@@ -553,7 +580,7 @@ public final class Provision {
         // ---- Menu chính: chọn danh mục FOOD (theo tên, rồi theo icon là đồ ăn) ----
         boolean inCategory = tl.contains("->") || tl.contains("»") || tl.contains(">");
         if (!inCategory) {
-            slot = findSlot(h, st -> GuiUtil.nameMatches(st, catKeywords()) && !clickedCategories.contains(GuiUtil.name(st)));
+            slot = findSlot(h, st -> catMatch(st) && !clickedCategories.contains(GuiUtil.name(st)));
             if (slot < 0) {
                 slot = !food ? -1 : findSlot(h, st -> st.get(DataComponentTypes.FOOD) != null
                         && !clickedCategories.contains("#" + Tools.itemId(st.getItem())));
@@ -583,7 +610,9 @@ public final class Provision {
                 return;
             }
         }
+        String seen = menuNames(h, n);
         closeGui(p);
-        fail("Không thấy " + item.getName().getString() + " trong /shop", item.getName().getString() + " not found in /shop");
+        fail("Không thấy " + item.getName().getString() + " trong /shop (menu: " + seen + ")",
+             item.getName().getString() + " not found in /shop (menu: " + seen + ")");
     }
 }

@@ -5,4 +5,4 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
-rootProject.name = 'khoa-automation-bot'
+rootProject.name = 'khoamoxe'

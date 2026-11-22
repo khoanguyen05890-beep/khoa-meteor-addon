@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "khoa-automation-bot",
+  "id": "khoamoxe",
   "version": "${version}",
-  "name": "KHOA AUTOMATION BOT",
+  "name": "KHOAMOXE",
   "description": "Meteor addon: Auto Miner, Auto Sand Bot, Item Collector, Litematica Builder.",
   "authors": ["Khoa"],
   "license": "MIT",

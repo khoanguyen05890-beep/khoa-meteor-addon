@@ -11,12 +11,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class KhoaAddon extends MeteorAddon {
-    public static final Logger LOG = LoggerFactory.getLogger("khoa-automation-bot");
+    public static final Logger LOG = LoggerFactory.getLogger("khoamoxe");
     public static final Category CATEGORY = new Category("Khoa");
 
     @Override
     public void onInitialize() {
-        LOG.info("KHOA AUTOMATION BOT (Meteor addon) loaded");
+        LOG.info("KHOAMOXE (Meteor addon) loaded");
         Modules.get().add(new KhoaAutoMiner());
         Modules.get().add(new KhoaAutoSandBot());
         Modules.get().add(new KhoaItemCollector());

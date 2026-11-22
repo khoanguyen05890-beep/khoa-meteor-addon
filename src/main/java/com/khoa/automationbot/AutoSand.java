@@ -13,6 +13,7 @@ import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.screen.slot.SlotActionType;
+import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
@@ -58,7 +59,7 @@ public final class AutoSand extends Task {
     private int timer, cooldown, refresh, repaths, collectTimer, jobCooldown, repairCooldown, dropTimer;
     private boolean breaking, pendingCollect;
     private BlockPos lastHit;
-    private int badAge;
+    private int badAge, baseY;
     public int minedCount;
 
     // chống kẹt / đi tìm cát
@@ -82,6 +83,7 @@ public final class AutoSand extends Task {
         pendingCollect = false;
         lastHit = null;
         badAge = 0;
+        baseY = MinecraftClient.getInstance().player != null ? MinecraftClient.getInstance().player.getBlockY() : 0;
         heading = rnd.nextDouble() * Math.PI * 2;
         minedCount = 0;
         walker.clear();
@@ -253,7 +255,7 @@ public final class AutoSand extends Task {
         for (var e : scanner.positions.entrySet()) {
             if (!wanted.contains(e.getKey())) continue;
             for (BlockPos b : e.getValue()) {
-                if (bad.contains(b.asLong())) continue;
+                if (bad.contains(b.asLong()) || tooLow(b)) continue;
                 double dist = Math.sqrt(Tools.distSq(b, pp));
                 if (dist - (three ? BIAS * 8 : 0) >= bs) continue;
                 if (w.getBlockState(b).getBlock() != e.getKey()) continue;
@@ -266,6 +268,9 @@ public final class AutoSand extends Task {
         }
         return best;
     }
+
+    /** Hạn chế đào xuống: không đào block thấp hơn (baseY - max-dig-down). Cát đè lên người thì vẫn đào. */
+    private boolean tooLow(BlockPos b) { return b.getY() < baseY - SandConfig.get().maxDown; }
 
     /**
      * Cát GẦN NHẤT quanh người, quét tức thời (không phải chờ vòng quét lớn xong).
@@ -286,6 +291,7 @@ public final class AutoSand extends Task {
                     m.set(pb.getX() + dx, pb.getY() + dy, pb.getZ() + dz);
                     if (!wanted.contains(w.getBlockState(m).getBlock())) continue;
                     if (dx == 0 && dz == 0 && dy < 0) continue;            // không đào cát dưới chân
+                    if (m.getY() < baseY - SandConfig.get().maxDown) continue; // hạn chế đào xuống
                     if (bad.contains(m.asLong())) continue;
                     double d2 = eye.squaredDistanceTo(m.getX() + 0.5, m.getY() + 0.5, m.getZ() + 0.5);
                     double score = Math.sqrt(d2);
@@ -400,17 +406,22 @@ public final class AutoSand extends Task {
         return false;
     }
 
+    /** Báo kết quả việc phụ (bán/cất) ra chat để biết bot dừng ở đâu. */
+    private void say(MinecraftClient mc, String msg) {
+        if (mc.player != null && msg != null && !msg.isEmpty()) mc.player.sendMessage(Text.literal("[khoamoxe] " + msg), false);
+    }
+
     private void runJob(MinecraftClient mc) {
         switch (job) {
             case SELL -> {
                 boolean run = order.tick(mc);
                 status = order.status;
-                if (!run) endJob(order.success ? 20 : 600);
+                if (!run) { if (!order.success) say(mc, order.status); endJob(order.success ? 20 : 400); }
             }
             case STASH -> {
                 boolean run = stash.tick(mc);
                 status = stash.status;
-                if (!run) endJob(stash.success ? 20 : 600);
+                if (!run) { say(mc, stash.status); endJob(stash.success ? 20 : 400); }
             }
             case REPAIR -> {
                 boolean run = repair.tick(mc);
@@ -454,6 +465,7 @@ public final class AutoSand extends Task {
         scanner.maxY = p.getBlockY() + sc.scanHeight;
 
         if (--dropTimer <= 0) { dropTimer = 10; if (phase != Phase.ESCAPE) Junk.dropOne(mc, Items.SAND); }   // luôn vứt block/đồ không liên quan
+        { int y = p.getBlockY(); if (y > baseY || y < baseY - SandConfig.get().maxDown - 1) baseY = y; }   // leo cồn / rơi xuống thấp thật thì lấy mốc mới
         if (++badAge > 400) { badAge = 0; bad.clear(); }                       // cho thử lại các chỗ từng bị đánh dấu hỏng
         if (phase != Phase.ESCAPE && failStreak >= 4) startEscape(mc);
 
@@ -557,6 +569,7 @@ public final class AutoSand extends Task {
             phase = Phase.SEARCH;
         } else if (r == Walker.Result.DONE) {
             walker.clear();
+            baseY = mc.player.getBlockY();
             phase = Phase.SEARCH;
         }
     }
@@ -588,6 +601,7 @@ public final class AutoSand extends Task {
         Motion.release();
         bad.clear();
         escTimer = 0;
+        baseY = MinecraftClient.getInstance().player.getBlockY();
         phase = Phase.SEARCH;
         cooldown = Config.get().delay();
     }

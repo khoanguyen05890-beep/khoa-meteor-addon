@@ -47,6 +47,19 @@ public final class SandUtil {
         return s.getName().getString().toLowerCase(Locale.ROOT).contains(k) || path(s.getItem()).contains(k);
     }
 
+    public static boolean isPickaxe(ItemStack s) {
+        return !s.isEmpty() && path(s.getItem()).endsWith("_pickaxe");
+    }
+
+    public static boolean hasEnchant(ItemStack s, String id) {
+        ItemEnchantmentsComponent e = s.get(DataComponentTypes.ENCHANTMENTS);
+        if (e == null) return false;
+        for (var entry : e.getEnchantments()) {
+            if (entry.getIdAsString().contains(id)) return true;
+        }
+        return false;
+    }
+
     public static boolean hasMending(ItemStack s) {
         ItemEnchantmentsComponent e = s.get(DataComponentTypes.ENCHANTMENTS);
         if (e == null) return false;
