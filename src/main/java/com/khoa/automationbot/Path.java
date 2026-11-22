@@ -83,6 +83,7 @@ public final class Path {
 
     public static Path find(World w, BlockPos start, Predicate<BlockPos> goal, BlockPos hint, int maxNodes, boolean dig) {
         final double hw = dig ? 2.0 : 1.0;
+        final boolean strict = !lavaNear(w, start);
         PriorityQueue<Node> open = new PriorityQueue<>(Comparator.comparingDouble(n -> n.f));
         Map<Long, Node> all = new HashMap<>();
         Set<Long> closed = new HashSet<>();
@@ -109,12 +110,12 @@ public final class Path {
                 if (e0 >= 0 && e1 >= 0) {
                     double extra = e0 + e1;
                     if (floorOk(w, c0.down())) {
-                        push(open, all, closed, n, c0, 1.0 + extra, hint, hw);
+                        push(w, strict, open, all, closed, n, c0, 1.0 + extra, hint, hw);
                     } else if (extra == 0) {
                         for (int k = 1; k <= 3; k++) {
                             BlockPos c = new BlockPos(nx, y - k, nz);
                             if (!passable(w, c)) break;
-                            if (floorOk(w, c.down())) { push(open, all, closed, n, c, 1.0 + k, hint, hw); break; }
+                            if (floorOk(w, c.down())) { push(w, strict, open, all, closed, n, c, 1.0 + k, hint, hw); break; }
                         }
                     }
                 }
@@ -122,7 +123,7 @@ public final class Path {
                 BlockPos c1 = new BlockPos(nx, y + 1, nz);
                 if (floorOk(w, c0)) {
                     double u = enter(w, up2, dig), a = enter(w, c1, dig), b = enter(w, c1.up(), dig);
-                    if (u >= 0 && a >= 0 && b >= 0) push(open, all, closed, n, c1, 1.6 + u + a + b, hint, hw);
+                    if (u >= 0 && a >= 0 && b >= 0) push(w, strict, open, all, closed, n, c1, 1.6 + u + a + b, hint, hw);
                 }
             }
             // đào xuống
@@ -133,7 +134,7 @@ public final class Path {
                     for (int k = 0; k <= 3; k++) {
                         BlockPos land = new BlockPos(n.pos.getX(), y - 1 - k, n.pos.getZ());
                         if (k > 0 && !passable(w, land)) break;
-                        if (floorOk(w, land.down())) { push(open, all, closed, n, land, 1.0 + e + k, hint, hw); break; }
+                        if (floorOk(w, land.down())) { push(w, strict, open, all, closed, n, land, 1.0 + e + k, hint, hw); break; }
                     }
                 }
             }
@@ -142,10 +143,39 @@ public final class Path {
         return null;
     }
 
-    private static void push(PriorityQueue<Node> open, Map<Long, Node> all, Set<Long> closed,
+    /** Có dung nham trong khối 3x3x3 quanh ô p (kể cả ô bên dưới). */
+    public static boolean lavaNear(World w, BlockPos p) {
+        BlockPos.Mutable m = new BlockPos.Mutable();
+        for (int dx = -1; dx <= 1; dx++)
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dy = -2; dy <= 1; dy++) {
+                    m.set(p.getX() + dx, p.getY() + dy, p.getZ() + dz);
+                    if (w.getBlockState(m).getFluidState().isIn(FluidTags.LAVA)) return true;
+                }
+        return false;
+    }
+
+    /** Phạt các ô sát mép vực (ô bên cạnh rơi sâu > 3 block) để đường đi tránh xa mép. */
+    private static double edgePenalty(World w, BlockPos p) {
+        double pen = 0;
+        for (Direction d : Direction.Type.HORIZONTAL) {
+            BlockPos n = p.offset(d);
+            if (!passable(w, n) && !passable(w, n.up())) continue;       // có tường
+            boolean deep = true;
+            for (int k = 1; k <= 4; k++) {
+                if (!passable(w, n.down(k))) { deep = false; break; }
+            }
+            if (deep) pen += 4.0;
+        }
+        return pen;
+    }
+
+    private static void push(World w, boolean strict, PriorityQueue<Node> open, Map<Long, Node> all, Set<Long> closed,
                              Node from, BlockPos to, double cost, BlockPos hint, double hw) {
         long key = to.asLong();
         if (closed.contains(key)) return;
+        if (strict && lavaNear(w, to)) return;          // không đi sát hố dung nham (trừ khi đang đứng sát sẵn)
+        cost += edgePenalty(w, to);
         double g = from.g + cost;
         Node ex = all.get(key);
         if (ex != null && ex.g <= g) return;

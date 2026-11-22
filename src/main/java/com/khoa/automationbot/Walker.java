@@ -71,6 +71,9 @@ public final class Walker {
         if (idx >= path.size()) { stopKeys(); return Result.DONE; }
         BlockPos t = path.get(idx);
 
+        // dung nham/vực mới xuất hiện trên đường đi (dung nham chảy...): dừng để tìm đường vòng
+        if (!Path.lavaNear(mc.world, pb) && Path.lavaNear(mc.world, t)) { stopKeys(); return Result.FAILED; }
+
         if (dig) {
             Result d = digFor(mc, pb, t);
             if (d != null) return d;

@@ -14,6 +14,7 @@ Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa 
 - **Xẻng sắp hỏng** (`auto-repair`, `repair-percent`): `/shop` -> danh mục totem -> exp -> `+64` -> xác nhận; đưa xẻng sang tay phụ, cầm chai exp, nhìn xuống đất ném tới khi xẻng gần đầy độ bền (cần **Mending**), rồi trả xẻng về chỗ cũ. Xẻng không có Mending thì bot báo và không sửa.
 - **Đào liên tục, quét xa** (2.5.1): `radius` tới 128 block ngang (chỉ phần chunk đã tải) và `scan-height` ±16 theo chiều cao; quét liên tục không nghỉ. Hết cát gần thì bot tự đi tìm xa hơn theo một hướng rồi quét lại.
 - **Chống kẹt**: nhiều lần không tới được cát thì bot đào xuyên tới chỗ thoáng (thấy trời); không được thì nhảy + đặt block dưới chân leo lên (đập block chắn trên đầu nếu có). Block leo ưu tiên block rác, hết thì dùng cát.
+- **Tránh lava / vực** (2.5.2, áp dụng cho mọi module dùng đường đi): không đi vào ô sát dung nham (khối 3x3x3 quanh ô đứng, kể cả ô bên dưới) mà tìm đường vòng; ô sát mép vực (rơi sâu hơn 3 block) bị phạt nặng nên đường đi tránh xa mép. Đang đi mà dung nham mới chảy tới trước mặt thì dừng và tính lại đường.
 - **Vứt đồ không liên quan liên tục** (cobblestone, dirt... không còn được giữ); chai exp, đồ ăn, công cụ, shulker/ender chest được giữ.
 - Tên danh mục / món trong `/shop` là từ khoá chỉnh được (`end-category`, `exp-category`, `exp-keywords`) nếu server đặt tên khác.
 
