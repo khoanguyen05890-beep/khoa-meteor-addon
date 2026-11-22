@@ -40,6 +40,8 @@ public final class AutoSand extends Task {
     private enum Job { NONE, SELL, STASH, REPAIR }
 
     private static final double REACH = 4.0;
+    private static final int LOCAL_H = 7, LOCAL_DOWN = 5, LOCAL_UP = 4;   // quét tức thời quanh người
+    private static final double BIAS = 0.2;                                // ưu tiên nhẹ chỗ có nhiều cát (3x3), vẫn là chỗ GẦN NHẤT
 
     private final BlockScanner scanner = new BlockScanner();
     private final ItemCollector collector = new ItemCollector();
@@ -54,7 +56,9 @@ public final class AutoSand extends Task {
     private BlockPos target, cur;
     private List<BlockPos> area = List.of();
     private int timer, cooldown, refresh, repaths, collectTimer, jobCooldown, repairCooldown, dropTimer;
-    private boolean breaking;
+    private boolean breaking, pendingCollect;
+    private BlockPos lastHit;
+    private int badAge;
     public int minedCount;
 
     // chống kẹt / đi tìm cát
@@ -75,6 +79,9 @@ public final class AutoSand extends Task {
         area = List.of();
         cooldown = refresh = jobCooldown = repairCooldown = dropTimer = 0;
         failStreak = noTarget = escStage = escTimer = 0;
+        pendingCollect = false;
+        lastHit = null;
+        badAge = 0;
         heading = rnd.nextDouble() * Math.PI * 2;
         minedCount = 0;
         walker.clear();
@@ -248,16 +255,56 @@ public final class AutoSand extends Task {
             for (BlockPos b : e.getValue()) {
                 if (bad.contains(b.asLong())) continue;
                 double dist = Math.sqrt(Tools.distSq(b, pp));
-                if (dist - (three ? 0.7 * 8 : 0) >= bs) continue;
+                if (dist - (three ? BIAS * 8 : 0) >= bs) continue;
                 if (w.getBlockState(b).getBlock() != e.getKey()) continue;
                 if (!exposed(w, b) || nearLava(w, b)) continue;
                 if (b.getX() == pb.getX() && b.getZ() == pb.getZ() && b.getY() < pb.getY()) continue;   // không đào cát dưới chân
                 double score = dist;
-                if (three) score -= 0.7 * (bestPlane(w, b) - 1);     // chỗ nhiều cát (3x3 đầy) thì đáng đi xa hơn
+                if (three) score -= BIAS * (bestPlane(w, b) - 1);    // ngang khoảng cách thì chọn chỗ nhiều cát hơn
                 if (score < bs) { bs = score; best = b; }
             }
         }
         return best;
+    }
+
+    /**
+     * Cát GẦN NHẤT quanh người, quét tức thời (không phải chờ vòng quét lớn xong).
+     * Cát trong tầm với (đứng yên đào được) luôn được ưu tiên trước cát phải đi tới.
+     */
+    private BlockPos localTarget(MinecraftClient mc) {
+        ClientWorld w = mc.world;
+        ClientPlayerEntity p = mc.player;
+        BlockPos pb = p.getBlockPos();
+        Vec3d eye = p.getEyePos();
+        boolean three = wantThreeByThree();
+        BlockPos best = null;
+        double bs = Double.MAX_VALUE;
+        BlockPos.Mutable m = new BlockPos.Mutable();
+        for (int dx = -LOCAL_H; dx <= LOCAL_H; dx++) {
+            for (int dz = -LOCAL_H; dz <= LOCAL_H; dz++) {
+                for (int dy = -LOCAL_DOWN; dy <= LOCAL_UP; dy++) {
+                    m.set(pb.getX() + dx, pb.getY() + dy, pb.getZ() + dz);
+                    if (!wanted.contains(w.getBlockState(m).getBlock())) continue;
+                    if (dx == 0 && dz == 0 && dy < 0) continue;            // không đào cát dưới chân
+                    if (bad.contains(m.asLong())) continue;
+                    double d2 = eye.squaredDistanceTo(m.getX() + 0.5, m.getY() + 0.5, m.getZ() + 0.5);
+                    double score = Math.sqrt(d2);
+                    if (d2 > REACH * REACH) score += 50;                   // tay chưa tới: xếp sau cát đứng yên đào được
+                    if (score - (three ? BIAS * 8 : 0) >= bs) continue;
+                    BlockPos b = m.toImmutable();
+                    if (!exposed(w, b) || nearLava(w, b)) continue;
+                    if (three) score -= BIAS * (bestPlane(w, b) - 1);
+                    if (score < bs) { bs = score; best = b; }
+                }
+            }
+        }
+        return best;
+    }
+
+    private int sandFound() {
+        int n = 0;
+        for (List<BlockPos> l : scanner.positions.values()) n += l.size();
+        return n;
     }
 
     private boolean planPath(MinecraftClient mc) {
@@ -275,6 +322,7 @@ public final class AutoSand extends Task {
     private void markBad(BlockPos p) {
         if (p != null) { bad.add(p.asLong()); failStreak++; }
         target = cur = null;
+        lastHit = null;
         area = List.of();
         walker.clear();
         Motion.forward(false);
@@ -289,6 +337,7 @@ public final class AutoSand extends Task {
         Motion.release();
         if (mc.interactionManager != null) mc.interactionManager.cancelBlockBreaking();
         target = cur = null;
+        lastHit = null;
         area = List.of();
     }
 
@@ -405,6 +454,7 @@ public final class AutoSand extends Task {
         scanner.maxY = p.getBlockY() + sc.scanHeight;
 
         if (--dropTimer <= 0) { dropTimer = 10; if (phase != Phase.ESCAPE) Junk.dropOne(mc, Items.SAND); }   // luôn vứt block/đồ không liên quan
+        if (++badAge > 400) { badAge = 0; bad.clear(); }                       // cho thử lại các chỗ từng bị đánh dấu hỏng
         if (phase != Phase.ESCAPE && failStreak >= 4) startEscape(mc);
 
         switch (phase) {
@@ -412,13 +462,20 @@ public final class AutoSand extends Task {
                 scanner.tick(mc);
                 if (cooldown > 0) { cooldown--; return; }
                 BlockPos best = rescueTarget(mc);
-                if (best == null) best = pickTarget(mc);
+                if (best == null) best = localTarget(mc);                  // cát gần nhất, quét tức thời
+                if (best == null) best = pickTarget(mc);                   // hết cát gần: lấy từ vòng quét xa
                 if (best == null) {
-                    status = t("Đang dò cát... (đã quét ", "Scanning for sand... (scanned ") + scanner.scannedTotal + ")";
+                    if (pendingCollect) { pendingCollect = false; phase = Phase.COLLECT; collectTimer = 0; collector.start(); return; }
+                    status = t("Đang dò cát... (đã quét ", "Scanning for sand... (scanned ") + scanner.scannedTotal
+                        + t(", thấy ", ", found ") + sandFound() + ")";
                     if (++noTarget > 20 && scanner.cycles >= 1) startExplore(mc);
                     return;
                 }
                 noTarget = 0;
+                if (pendingCollect && !inReach(p, best)) {                 // sắp phải đi chỗ khác: nhặt hết cát vừa đào trước
+                    pendingCollect = false; phase = Phase.COLLECT; collectTimer = 0; collector.start();
+                    return;
+                }
                 target = cur = best;
                 area = List.of();
                 repaths = 0;
@@ -455,7 +512,7 @@ public final class AutoSand extends Task {
                 boolean busy = collector.step(mc);
                 status = t("Đang nhặt cát...", "Collecting sand...");
                 if (collector.full) { phase = Phase.SEARCH; cooldown = cfg.delay(); return; }   // đầy -> đầu tick sau sẽ bán/cất
-                if ((busy || collectTimer < 3) && collectTimer < 200) return;
+                if ((busy || collectTimer < 2) && collectTimer < 120) return;
                 phase = Phase.SEARCH;
                 cooldown = cfg.delay();
             }
@@ -604,12 +661,18 @@ public final class AutoSand extends Task {
         if (target == null || cur == null) { phase = Phase.SEARCH; return; }
 
         if (!wanted.contains(w.getBlockState(cur).getBlock())) {       // block đã vỡ
-            if (breaking) { Stats.mined++; minedCount++; failStreak = 0; noTarget = 0; }
-            target = cur = null;
+            if (breaking) { Stats.mined++; minedCount++; failStreak = 0; noTarget = 0; if (cfg.autoCollect) pendingCollect = true; }
+            lastHit = null;
             area = List.of();
+            if (SandConfig.get().fast) {                                // đào nhanh: sang ngay cát kế tiếp trong tầm với, nhặt gộp sau
+                BlockPos next = rescueTarget(mc);
+                if (next == null) next = localTarget(mc);
+                if (next != null && inReach(p, next)) { target = cur = next; timer = 0; breaking = false; return; }
+            }
+            target = cur = null;
             Motion.release();
-            if (cfg.autoCollect && breaking) { phase = Phase.COLLECT; collectTimer = 0; collector.start(); }
-            else { phase = Phase.SEARCH; cooldown = cfg.delay(); }
+            if (pendingCollect) { pendingCollect = false; phase = Phase.COLLECT; collectTimer = 0; collector.start(); }
+            else { phase = Phase.SEARCH; cooldown = SandConfig.get().fast ? 0 : cfg.delay(); }
             return;
         }
 
@@ -634,8 +697,15 @@ public final class AutoSand extends Task {
         area = three ? plane(w, cur, hit.getSide().getAxis()) : List.of();
         status = (three ? t("Đào 3x3 (", "Mining 3x3 (") + area.size() + ") " : t("Đang đào ", "Mining ")) + st.getBlock().getName().getString();
 
-        if (!Motion.lookAt(p, hit.getPos(), cfg.turnSpeed())) return;
-        mc.interactionManager.updateBlockBreakingProgress(cur, hit.getSide());
+        boolean fast = SandConfig.get().fast;
+        float ts = fast ? Math.max(cfg.turnSpeed(), 90f) : cfg.turnSpeed();
+        if (!Motion.lookAt(p, hit.getPos(), ts)) return;
+        if (fast && !cur.equals(lastHit)) {                             // block mới: attackBlock không dính độ trễ 5 tick sau mỗi lần vỡ
+            mc.interactionManager.attackBlock(cur, hit.getSide());
+            lastHit = cur;
+        } else {
+            mc.interactionManager.updateBlockBreakingProgress(cur, hit.getSide());
+        }
         p.swingHand(Hand.MAIN_HAND);
         breaking = true;
         if (++timer > 240) markBad(target);

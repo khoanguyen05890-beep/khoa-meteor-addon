@@ -1,7 +1,14 @@
-# KHOA AUTOMATION BOT — Meteor addon (Minecraft 1.21.11) — v2.5.0
+# KHOA AUTOMATION BOT — Meteor addon (Minecraft 1.21.11) — v2.5.3
 
 Cột **Khoa** trong ClickGUI: `khoa-auto-miner`, `khoa-auto-sand`, `khoa-item-collector`, `khoa-litematica-builder`.
 Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa chạy tại một thời điểm.
+
+## Mới ở 2.5.3 — Auto Sand: đào GẦN NHẤT và đào NHANH (`fast-mine`, mặc định bật)
+- **Quét tức thời quanh người** (±7 ngang, -5..+4 dọc): có mục tiêu ngay, không phải chờ vòng quét lớn (~5 giây) như trước. Vòng quét xa chỉ dùng khi hết cát gần.
+- **Luôn chọn cát gần nhất**; cát trong tầm với (đứng yên đào được) đào trước, chỉ đi khi hết cát trong tầm. Ưu tiên 3x3 giờ chỉ là phụ (không còn đi xa chỉ vì chỗ nhiều cát hơn).
+- **Đào nhanh**: đào xong một block là sang block kế ngay trong cùng tick (không qua bước tìm/nghỉ), dùng `attackBlock` cho block mới để khỏi dính độ trễ 5 tick sau mỗi lần vỡ, xoay camera nhanh hơn (>= 90°/tick), nhặt cát gộp một lượt khi hết cát trong tầm.
+- Các chỗ từng bị đánh dấu hỏng được thử lại sau ~20 giây (trước đây bị bỏ mãi mãi tới khi chống kẹt chạy).
+- Trạng thái khi không thấy cát hiển thị thêm số cát tìm thấy để dễ biết bot đang kẹt ở đâu.
 
 ## Mới ở 2.5.0 — Auto Sand Bot (`khoa-auto-sand`)
 - **Dò cát + đào tự động**: quét cát/cát đỏ quanh bạn (`radius`), đi tới, đào, nhặt. Cát đè lên đầu thì đào ngay để khỏi ngạt; không đào cát ngay dưới chân; tránh chỗ sát dung nham.

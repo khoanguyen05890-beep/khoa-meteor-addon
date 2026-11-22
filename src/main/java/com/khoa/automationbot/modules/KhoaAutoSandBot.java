@@ -50,6 +50,12 @@ public class KhoaAutoSandBot extends KhoaModule {
         .sliderMax(64)
         .build());
 
+    private final Setting<Boolean> fastMine = sgGeneral.add(new BoolSetting.Builder()
+        .name("fast-mine")
+        .description("Đào nhanh: luôn chọn cát GẦN NHẤT, đào hết cát trong tầm với trước khi di chuyển, chuyển block ngay (không chờ), xoay camera nhanh, nhặt gộp một lượt.")
+        .defaultValue(true)
+        .build());
+
     private final Setting<Boolean> amethyst3x3 = sgGeneral.add(new BoolSetting.Builder()
         .name("amethyst-3x3")
         .description("Xẻng có tên chứa từ khoá (mặc định 'amethyst') thì đào 3x3: ưu tiên chỗ có nhiều cát nhất và cầm xẻng đó.")
@@ -242,6 +248,7 @@ public class KhoaAutoSandBot extends KhoaModule {
         SandConfig s = SandConfig.get();
         s.radius = radius.get();
         s.scanHeight = scanHeight.get();
+        s.fast = fastMine.get();
         s.amethyst3x3 = amethyst3x3.get();
         s.shovelKeyword = shovelKeyword.get();
         s.keepMode = fullMode.get() == FullMode.KEEP_SHULKER;

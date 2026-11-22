@@ -10,6 +10,7 @@ public final class SandConfig {
 
     public int radius = 64;
     public int scanHeight = 16;                      // quét ±số block theo chiều cao quanh người chơi
+    public boolean fast = true;                      // đào nhanh: hết cát trong tầm với rồi mới đi, chuyển block ngay
     public boolean amethyst3x3 = true;
     public String shovelKeyword = "amethyst";
 
