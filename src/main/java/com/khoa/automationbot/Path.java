@@ -17,6 +17,10 @@ import java.util.function.Predicate;
  * Chế độ dig: được phép đào xuyên block (ngang, lên 1 bậc, đào xuống), trừ bedrock và chỗ sát dung nham.
  */
 public final class Path {
+    /** true = chỉ đi qua ô lộ thiên (thấy trời) - không chui vào hang/hầm. Chỉ áp dụng khi ô xuất phát cũng lộ thiên. */
+    public static boolean surfaceOnly;
+    private static boolean curSurf;
+
     public final List<BlockPos> nodes;
     public final boolean complete;
     public final boolean dig;
@@ -84,6 +88,7 @@ public final class Path {
     public static Path find(World w, BlockPos start, Predicate<BlockPos> goal, BlockPos hint, int maxNodes, boolean dig) {
         final double hw = dig ? 2.0 : 1.0;
         final boolean strict = !lavaNear(w, start);
+        curSurf = surfaceOnly && w.isSkyVisible(start.up());
         PriorityQueue<Node> open = new PriorityQueue<>(Comparator.comparingDouble(n -> n.f));
         Map<Long, Node> all = new HashMap<>();
         Set<Long> closed = new HashSet<>();
@@ -174,6 +179,7 @@ public final class Path {
                              Node from, BlockPos to, double cost, BlockPos hint, double hw) {
         long key = to.asLong();
         if (closed.contains(key)) return;
+        if (curSurf && !w.isSkyVisible(to.up())) return;                // chỉ đi trên mặt đất
         if (strict && lavaNear(w, to)) return;          // không đi sát hố dung nham (trừ khi đang đứng sát sẵn)
         cost += edgePenalty(w, to);
         double g = from.g + cost;

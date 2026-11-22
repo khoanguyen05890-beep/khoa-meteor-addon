@@ -56,6 +56,12 @@ public class KhoaAutoSandBot extends KhoaModule {
         .defaultValue(true)
         .build());
 
+    private final Setting<Boolean> surfaceOnly = sgGeneral.add(new BoolSetting.Builder()
+        .name("surface-only")
+        .description("Chỉ đào cát lộ thiên (thấy trời) và chỉ đi trên mặt đất: không chui vào hang/hầm. Lỡ rơi xuống hang thì bot tự đào/leo lên mặt đất.")
+        .defaultValue(true)
+        .build());
+
     private final Setting<Integer> maxDigDown = sgGeneral.add(new IntSetting.Builder()
         .name("max-dig-down")
         .description("Hạn chế đào xuống: chỉ đào block cao hơn mốc chân tối đa bấy nhiêu block (0 = không đào cả sàn đang đứng, 1 = chỉ lớp sàn, không khoét sâu). Mốc tự cập nhật khi leo lên hoặc đi chỗ khác.")
@@ -150,7 +156,7 @@ public class KhoaAutoSandBot extends KhoaModule {
 
     private final Setting<Integer> expAmount = sgRepair.add(new IntSetting.Builder()
         .name("exp-amount")
-        .description("Số chai exp mua mỗi lần (bấm +64).")
+        .description("Số chai exp mua mỗi lần (nút 'Đặt thành 64').")
         .defaultValue(64)
         .min(1)
         .sliderMax(64)
@@ -165,7 +171,7 @@ public class KhoaAutoSandBot extends KhoaModule {
 
     private final Setting<Integer> foodBuyAmount = sgSurvival.add(new IntSetting.Builder()
         .name("food-buy-amount")
-        .description("Số đồ ăn mua mỗi lần (bấm +64).")
+        .description("Số đồ ăn mua mỗi lần (nút 'Đặt thành 64').")
         .defaultValue(64)
         .min(1)
         .sliderMax(64)
@@ -241,7 +247,7 @@ public class KhoaAutoSandBot extends KhoaModule {
         c.protectedItems = new java.util.HashSet<>(List.of("minecraft:experience_bottle"));
         c.itemRadius = itemRadius.get();
 
-        // đói -> /shop -> thịt bò (icon danh mục) -> cà rốt vàng -> +64 -> xác nhận -> ăn
+        // đói -> /shop -> thịt bò (icon danh mục) -> cà rốt vàng -> Đặt thành 64 -> xác nhận -> ăn
         String food = Tools.itemId(foodItem.get());
         List<String> eat = new ArrayList<>();
         eat.add(food);
@@ -257,6 +263,7 @@ public class KhoaAutoSandBot extends KhoaModule {
         s.radius = radius.get();
         s.scanHeight = scanHeight.get();
         s.fast = fastMine.get();
+        s.surfaceOnly = surfaceOnly.get();
         s.maxDown = maxDigDown.get();
         s.amethyst3x3 = amethyst3x3.get();
         s.shovelKeyword = shovelKeyword.get();

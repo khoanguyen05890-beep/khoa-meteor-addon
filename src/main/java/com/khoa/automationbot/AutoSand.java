@@ -59,7 +59,7 @@ public final class AutoSand extends Task {
     private int timer, cooldown, refresh, repaths, collectTimer, jobCooldown, repairCooldown, dropTimer;
     private boolean breaking, pendingCollect;
     private BlockPos lastHit;
-    private int badAge, baseY;
+    private int badAge, baseY, caveTicks;
     public int minedCount;
 
     // chống kẹt / đi tìm cát
@@ -83,6 +83,7 @@ public final class AutoSand extends Task {
         pendingCollect = false;
         lastHit = null;
         badAge = 0;
+        caveTicks = 0;
         baseY = MinecraftClient.getInstance().player != null ? MinecraftClient.getInstance().player.getBlockY() : 0;
         heading = rnd.nextDouble() * Math.PI * 2;
         minedCount = 0;
@@ -259,7 +260,7 @@ public final class AutoSand extends Task {
                 double dist = Math.sqrt(Tools.distSq(b, pp));
                 if (dist - (three ? BIAS * 8 : 0) >= bs) continue;
                 if (w.getBlockState(b).getBlock() != e.getKey()) continue;
-                if (!exposed(w, b) || nearLava(w, b)) continue;
+                if (!exposed(w, b) || nearLava(w, b) || !surfaceOk(w, b)) continue;
                 if (b.getX() == pb.getX() && b.getZ() == pb.getZ() && b.getY() < pb.getY()) continue;   // không đào cát dưới chân
                 double score = dist;
                 if (three) score -= BIAS * (bestPlane(w, b) - 1);    // ngang khoảng cách thì chọn chỗ nhiều cát hơn
@@ -267,6 +268,16 @@ public final class AutoSand extends Task {
             }
         }
         return best;
+    }
+
+    /** Cát lộ thiên: có mặt tiếp xúc với ô trống thấy trời (không phải cát trong hang/dưới lòng đất). */
+    private boolean surfaceOk(ClientWorld w, BlockPos b) {
+        if (!SandConfig.get().surfaceOnly) return true;
+        for (Direction d : Direction.values()) {
+            BlockPos n = b.offset(d);
+            if (!w.getBlockState(n).isFullCube(w, n) && w.isSkyVisible(n)) return true;
+        }
+        return false;
     }
 
     /** Hạn chế đào xuống: không đào block thấp hơn (baseY - max-dig-down). Cát đè lên người thì vẫn đào. */
@@ -298,7 +309,7 @@ public final class AutoSand extends Task {
                     if (d2 > REACH * REACH) score += 50;                   // tay chưa tới: xếp sau cát đứng yên đào được
                     if (score - (three ? BIAS * 8 : 0) >= bs) continue;
                     BlockPos b = m.toImmutable();
-                    if (!exposed(w, b) || nearLava(w, b)) continue;
+                    if (!exposed(w, b) || nearLava(w, b) || !surfaceOk(w, b)) continue;
                     if (three) score -= BIAS * (bestPlane(w, b) - 1);
                     if (score < bs) { bs = score; best = b; }
                 }
@@ -316,10 +327,14 @@ public final class AutoSand extends Task {
     private boolean planPath(MinecraftClient mc) {
         final BlockPos tgt = target;
         final Vec3d c = Vec3d.ofCenter(tgt);
-        Path path = Path.find(mc.world, mc.player.getBlockPos(), n -> {
-            Vec3d eye = new Vec3d(n.getX() + 0.5, n.getY() + 1.62, n.getZ() + 0.5);
-            return eye.squaredDistanceTo(c) <= 3.6 * 3.6 && !n.equals(tgt) && !n.up().equals(tgt);
-        }, tgt, 12000);
+        Path.surfaceOnly = SandConfig.get().surfaceOnly;
+        Path path;
+        try {
+            path = Path.find(mc.world, mc.player.getBlockPos(), n -> {
+                Vec3d eye = new Vec3d(n.getX() + 0.5, n.getY() + 1.62, n.getZ() + 0.5);
+                return eye.squaredDistanceTo(c) <= 3.6 * 3.6 && !n.equals(tgt) && !n.up().equals(tgt);
+            }, tgt, 12000);
+        } finally { Path.surfaceOnly = false; }
         if (path == null) return false;
         walker.set(path);
         return true;
@@ -467,6 +482,10 @@ public final class AutoSand extends Task {
         if (--dropTimer <= 0) { dropTimer = 10; if (phase != Phase.ESCAPE) Junk.dropOne(mc, Items.SAND); }   // luôn vứt block/đồ không liên quan
         { int y = p.getBlockY(); if (y > baseY || y < baseY - SandConfig.get().maxDown - 1) baseY = y; }   // leo cồn / rơi xuống thấp thật thì lấy mốc mới
         if (++badAge > 400) { badAge = 0; bad.clear(); }                       // cho thử lại các chỗ từng bị đánh dấu hỏng
+        if (SandConfig.get().surfaceOnly && phase != Phase.ESCAPE) {              // lỡ xuống hang: tự thoát lên mặt đất
+            if (w.isSkyVisible(p.getBlockPos().up())) caveTicks = 0;
+            else if (++caveTicks > 100) { caveTicks = 0; startEscape(mc); }
+        }
         if (phase != Phase.ESCAPE && failStreak >= 4) startEscape(mc);
 
         switch (phase) {
@@ -536,10 +555,14 @@ public final class AutoSand extends Task {
     private void startExplore(MinecraftClient mc) {
         final BlockPos o = mc.player.getBlockPos();
         final Vec3d hint = new Vec3d(o.getX() + Math.cos(heading) * 48, o.getY(), o.getZ() + Math.sin(heading) * 48);
-        Path path = Path.find(mc.world, o, n -> {
-            double dx = n.getX() - o.getX(), dz = n.getZ() - o.getZ();
-            return dx * dx + dz * dz >= 18 * 18;
-        }, BlockPos.ofFloored(hint), 8000);
+        Path.surfaceOnly = SandConfig.get().surfaceOnly;
+        Path path;
+        try {
+            path = Path.find(mc.world, o, n -> {
+                double dx = n.getX() - o.getX(), dz = n.getZ() - o.getZ();
+                return dx * dx + dz * dz >= 18 * 18;
+            }, BlockPos.ofFloored(hint), 8000);
+        } finally { Path.surfaceOnly = false; }
         noTarget = 0;
         if (path == null || path.nodes.isEmpty()) {
             failStreak++;

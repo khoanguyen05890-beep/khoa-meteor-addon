@@ -483,6 +483,23 @@ public final class Provision {
         return q;
     }
 
+    /** Nút "Đặt thành N" (đặt thẳng số lượng) lớn nhất mà curQty < N <= maxQty; -1 nếu không có. */
+    private int bestSetButton(ScreenHandler h, int n, int confirm, int maxQty, int curQty) {
+        Pattern num = Pattern.compile("(\\d+)");
+        int best = -1, bestV = 0;
+        for (int i = 0; i < n; i++) {
+            if (i == confirm) continue;
+            ItemStack st = h.slots.get(i).getStack();
+            if (!GuiUtil.isSet(st)) continue;
+            Matcher m = num.matcher(GuiUtil.name(st));
+            if (!m.find()) continue;
+            int v;
+            try { v = Integer.parseInt(m.group(1)); } catch (NumberFormatException e) { continue; }
+            if (v > curQty && v <= maxQty && v > bestV) { bestV = v; best = i; }
+        }
+        return best;
+    }
+
     /** Nút "+ Thêm N" lớn nhất mà N <= remaining; -1 nếu không có. */
     private int bestAddButton(ScreenHandler h, int n, int confirm, int remaining) {
         Pattern num = Pattern.compile("(\\d+)");
@@ -490,7 +507,7 @@ public final class Provision {
         for (int i = 0; i < n; i++) {
             if (i == confirm) continue;
             ItemStack st = h.slots.get(i).getStack();
-            if (!GuiUtil.isGreen(st) || !GuiUtil.isAdd(st)) continue;
+            if (!GuiUtil.isGreen(st) || !GuiUtil.isAdd(st) || GuiUtil.isSet(st)) continue;
             Matcher m = num.matcher(GuiUtil.name(st));
             if (!m.find()) continue;
             int v;
@@ -535,6 +552,15 @@ public final class Provision {
             status = t("Trang mua: bấm kính xanh để mua ", "Buy page: clicking green glass to buy ") + gain + "/" + want;
             if (lastQty >= 0) { if (qty == lastQty) qtyStall++; else qtyStall = 0; }
             if (qty < need && qty < 64 && addClicks < 10 && qtyStall < 2) {
+                int set = bestSetButton(h, n, confirm, Math.min(need, 64), qty);      // ưu tiên "Đặt thành N"
+                if (set >= 0) {
+                    lastQty = qty;
+                    addClicks++;
+                    GuiUtil.click(mc, h, set, 0, SlotActionType.PICKUP);
+                    clicks++;
+                    wait = 4;
+                    return;
+                }
                 int add = bestAddButton(h, n, confirm, Math.min(need, 64) - qty);
                 if (add >= 0) {
                     lastQty = qty;

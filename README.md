@@ -1,7 +1,16 @@
-# KHOAMOXE — Meteor addon (Minecraft 1.21.11) — v2.5.5
+# KHOAMOXE — Meteor addon (Minecraft 1.21.11) — v2.5.7
 
 Cột **Khoa** trong ClickGUI: `khoa-auto-miner`, `khoa-auto-sand`, `khoa-item-collector`, `khoa-litematica-builder`.
 Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa chạy tại một thời điểm.
+
+## Sửa 2.5.7 — mua ở /shop bằng nút "Đặt thành N"
+- Trang mua: bot bấm nút **"Đặt thành 64"** (đặt thẳng số lượng, `Set to 64` cũng nhận) rồi bấm kính xanh xác nhận. Không có nút này mới quay lại bấm "+ Thêm N". Nút "Đặt thành" không bao giờ bị nhầm là nút mua.
+
+## Mới ở 2.5.6 — chỉ đào trên mặt đất (`surface-only`, mặc định bật)
+- Chỉ nhắm cát lộ thiên (có mặt tiếp xúc ô trống thấy trời), bỏ qua cát trong hang/lòng đất.
+- Đường đi (tới cát, đi tìm cát xa) chỉ qua ô thấy trời, không chui vào hang/hầm/vực kín.
+- Lỡ ở dưới hang hơn ~5 giây thì tự đào/leo lên mặt đất (chống kẹt), rồi lấy mốc độ cao mới.
+- Kết hợp với `max-dig-down` để không khoét hố sâu.
 
 ## Sửa lỗi 2.5.5 — KEEP_SHULKER (mua shulker/ender chest, đặt, bỏ cát vào)
 - **/shop**: danh mục End Stone / Totem giờ nhận theo ICON (end_stone, totem) chứ không chỉ theo tên chữ; không tìm thấy thì báo tên các ô trong menu để chỉnh `end-category`.

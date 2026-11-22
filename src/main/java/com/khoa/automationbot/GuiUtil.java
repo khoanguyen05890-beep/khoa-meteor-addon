@@ -48,7 +48,14 @@ public final class GuiUtil {
     /** Nút "+ Thêm N" (tăng số lượng) - cũng là kính xanh nhưng KHÔNG phải nút mua. */
     public static boolean isAdd(ItemStack s) {
         String n = name(s).toLowerCase(Locale.ROOT);
-        return n.contains("+") || n.contains("thêm") || n.contains("them") || n.contains("add");
+        return n.contains("+") || n.contains("thêm") || n.contains("them") || n.contains("add") || isSet(s);
+    }
+
+    /** Nút "Đặt thành N" / "Set to N" (đặt thẳng số lượng) - KHÔNG phải nút mua. */
+    public static boolean isSet(ItemStack s) {
+        if (s.isEmpty()) return false;
+        String n = name(s).toLowerCase(Locale.ROOT);
+        return n.contains("đặt thành") || n.contains("dat thanh") || n.contains("đặt") || n.contains("set to") || n.startsWith("set ");
     }
 
     public static String lore(ItemStack s) {
