@@ -6,6 +6,8 @@ import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.world.ClientWorld;
 import net.minecraft.entity.player.PlayerInventory;
+import net.minecraft.item.BlockItem;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
@@ -23,6 +25,7 @@ import net.minecraft.world.RaycastContext;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Random;
 import java.util.Set;
 
 import static com.khoa.automationbot.Lang.t;
@@ -33,7 +36,7 @@ import static com.khoa.automationbot.Lang.t;
  * Đói thì module (KhoaModule/Hunger) tự đi /shop mua cà rốt vàng rồi ăn.
  */
 public final class AutoSand extends Task {
-    private enum Phase { SEARCH, WALK, MINE, COLLECT }
+    private enum Phase { SEARCH, WALK, MINE, COLLECT, EXPLORE, ESCAPE }
     private enum Job { NONE, SELL, STASH, REPAIR }
 
     private static final double REACH = 4.0;
@@ -54,6 +57,12 @@ public final class AutoSand extends Task {
     private boolean breaking;
     public int minedCount;
 
+    // chống kẹt / đi tìm cát
+    private final Random rnd = new Random();
+    private int failStreak, noTarget, escStage, escTimer;
+    private double heading;
+    private BlockPos escStart = BlockPos.ORIGIN;
+
     @Override public String name() { return "Auto Sand"; }
 
     @Override
@@ -65,6 +74,8 @@ public final class AutoSand extends Task {
         target = cur = null;
         area = List.of();
         cooldown = refresh = jobCooldown = repairCooldown = dropTimer = 0;
+        failStreak = noTarget = escStage = escTimer = 0;
+        heading = rnd.nextDouble() * Math.PI * 2;
         minedCount = 0;
         walker.clear();
         scanner.restart();
@@ -95,8 +106,14 @@ public final class AutoSand extends Task {
     public List<Vec3d> thread(MinecraftClient mc) {
         List<Vec3d> pts = new ArrayList<>();
         BlockPos t = targetPos();
-        if (t == null || mc.player == null || (phase != Phase.WALK && phase != Phase.MINE)) return pts;
+        if (mc.player == null || job != Job.NONE) return pts;
         Vec3d pp = mc.player.getEntityPos();
+        if (phase == Phase.EXPLORE || phase == Phase.ESCAPE) {
+            pts.add(new Vec3d(pp.x, pp.y + 0.1, pp.z));
+            for (BlockPos n : walker.remaining()) pts.add(new Vec3d(n.getX() + 0.5, n.getY() + 0.1, n.getZ() + 0.5));
+            return pts;
+        }
+        if (t == null || (phase != Phase.WALK && phase != Phase.MINE)) return pts;
         pts.add(new Vec3d(pp.x, pp.y + 0.1, pp.z));
         if (phase == Phase.WALK) {
             for (BlockPos n : walker.remaining()) pts.add(new Vec3d(n.getX() + 0.5, n.getY() + 0.1, n.getZ() + 0.5));
@@ -249,14 +266,14 @@ public final class AutoSand extends Task {
         Path path = Path.find(mc.world, mc.player.getBlockPos(), n -> {
             Vec3d eye = new Vec3d(n.getX() + 0.5, n.getY() + 1.62, n.getZ() + 0.5);
             return eye.squaredDistanceTo(c) <= 3.6 * 3.6 && !n.equals(tgt) && !n.up().equals(tgt);
-        }, tgt, 4000);
+        }, tgt, 12000);
         if (path == null) return false;
         walker.set(path);
         return true;
     }
 
     private void markBad(BlockPos p) {
-        if (p != null) bad.add(p.asLong());
+        if (p != null) { bad.add(p.asLong()); failStreak++; }
         target = cur = null;
         area = List.of();
         walker.clear();
@@ -377,8 +394,18 @@ public final class AutoSand extends Task {
             status = t("Chưa chọn block cát nào", "No sand block selected");
             return;
         }
-        scanner.radius = SandConfig.get().radius;
-        scanner.fullHeight = false;
+        SandConfig sc = SandConfig.get();
+        scanner.maxRadius = 160;
+        scanner.maxPerBlock = 30000;
+        scanner.budget = sc.radius > 40 ? 6000 : 2500;
+        scanner.idleWait = 4;
+        scanner.radius = sc.radius;
+        scanner.fullHeight = true;                         // quét cực xa theo chiều ngang, ±scanHeight theo chiều cao
+        scanner.minY = p.getBlockY() - sc.scanHeight;
+        scanner.maxY = p.getBlockY() + sc.scanHeight;
+
+        if (--dropTimer <= 0) { dropTimer = 10; if (phase != Phase.ESCAPE) Junk.dropOne(mc, Items.SAND); }   // luôn vứt block/đồ không liên quan
+        if (phase != Phase.ESCAPE && failStreak >= 4) startEscape(mc);
 
         switch (phase) {
             case SEARCH -> {
@@ -388,8 +415,10 @@ public final class AutoSand extends Task {
                 if (best == null) best = pickTarget(mc);
                 if (best == null) {
                     status = t("Đang dò cát... (đã quét ", "Scanning for sand... (scanned ") + scanner.scannedTotal + ")";
+                    if (++noTarget > 20 && scanner.cycles >= 1) startExplore(mc);
                     return;
                 }
+                noTarget = 0;
                 target = cur = best;
                 area = List.of();
                 repaths = 0;
@@ -415,20 +444,157 @@ public final class AutoSand extends Task {
                 if (r == Walker.Result.FAILED) markBad(target);
                 else if (r == Walker.Result.DONE) {
                     if (inReach(p, target)) { phase = Phase.MINE; timer = 0; }
-                    else if (++repaths > 15 || !planPath(mc)) markBad(target);
+                    else if (++repaths > 80 || !planPath(mc)) markBad(target);
                 }
             }
             case MINE -> mine(mc);
+            case EXPLORE -> explore(mc);
+            case ESCAPE -> escape(mc);
             case COLLECT -> {
                 collectTimer++;
                 boolean busy = collector.step(mc);
                 status = t("Đang nhặt cát...", "Collecting sand...");
                 if (collector.full) { phase = Phase.SEARCH; cooldown = cfg.delay(); return; }   // đầy -> đầu tick sau sẽ bán/cất
-                if ((busy || collectTimer < 8) && collectTimer < 200) return;
+                if ((busy || collectTimer < 3) && collectTimer < 200) return;
                 phase = Phase.SEARCH;
                 cooldown = cfg.delay();
             }
         }
+    }
+
+    // ------------------------------------------------------------------ đi tìm cát
+
+    private void startExplore(MinecraftClient mc) {
+        final BlockPos o = mc.player.getBlockPos();
+        final Vec3d hint = new Vec3d(o.getX() + Math.cos(heading) * 48, o.getY(), o.getZ() + Math.sin(heading) * 48);
+        Path path = Path.find(mc.world, o, n -> {
+            double dx = n.getX() - o.getX(), dz = n.getZ() - o.getZ();
+            return dx * dx + dz * dz >= 18 * 18;
+        }, BlockPos.ofFloored(hint), 8000);
+        noTarget = 0;
+        if (path == null || path.nodes.isEmpty()) {
+            failStreak++;
+            heading = rnd.nextDouble() * Math.PI * 2;
+            return;
+        }
+        walker.set(path);
+        timer = 0;
+        phase = Phase.EXPLORE;
+    }
+
+    private void explore(MinecraftClient mc) {
+        scanner.tick(mc);
+        status = t("Không thấy cát gần đây - đi tìm xa hơn", "No sand nearby - exploring");
+        if (++timer % 10 == 0 && pickTarget(mc) != null) {
+            walker.clear();
+            Motion.forward(false);
+            Motion.jump(false);
+            phase = Phase.SEARCH;
+            return;
+        }
+        Walker.Result r = walker.tick(mc);
+        if (r == Walker.Result.FAILED) {
+            failStreak++;
+            heading = rnd.nextDouble() * Math.PI * 2;          // hướng khác
+            walker.clear();
+            phase = Phase.SEARCH;
+        } else if (r == Walker.Result.DONE) {
+            walker.clear();
+            phase = Phase.SEARCH;
+        }
+    }
+
+    // ------------------------------------------------------------------ kẹt: đào ra / đặt block leo lên
+
+    private void startEscape(MinecraftClient mc) {
+        ClientPlayerEntity p = mc.player;
+        walker.clear();
+        Motion.release();
+        if (mc.interactionManager != null) mc.interactionManager.cancelBlockBreaking();
+        target = cur = null;
+        area = List.of();
+        failStreak = 0;
+        escStart = p.getBlockPos();
+        escTimer = 0;
+        phase = Phase.ESCAPE;
+        final ClientWorld w = mc.world;
+        final BlockPos o = escStart;
+        // cách 1: đào xuyên tới chỗ thoáng (thấy trời)
+        Path path = Path.find(w, o, n -> n.getManhattanDistance(o) >= 2 && Path.standable(w, n) && w.isSkyVisible(n),
+                o.up(12), 9000, true);
+        if (path != null && !path.nodes.isEmpty()) { walker.set(path); escStage = 0; }
+        else escStage = 1;                                   // cách 2: đặt block dựng cột
+    }
+
+    private void endEscape() {
+        walker.clear();
+        Motion.release();
+        bad.clear();
+        escTimer = 0;
+        phase = Phase.SEARCH;
+        cooldown = Config.get().delay();
+    }
+
+    /** Block dùng để leo: ưu tiên block rác, hết thì dùng cát. */
+    private Item scaffoldItem(ClientPlayerEntity p) {
+        Item sand = null;
+        for (int i = 0; i < 36; i++) {
+            ItemStack s = p.getInventory().getStack(i);
+            if (s.isEmpty() || !(s.getItem() instanceof BlockItem) || SandUtil.isShulker(s) || s.getItem() == Items.ENDER_CHEST) continue;
+            if (SandUtil.isSand(s.getItem())) { if (sand == null) sand = s.getItem(); }
+            else return s.getItem();
+        }
+        return sand;
+    }
+
+    private void escape(MinecraftClient mc) {
+        ClientPlayerEntity p = mc.player;
+        ClientWorld w = mc.world;
+        Config cfg = Config.get();
+        if (++escTimer > (escStage == 0 ? 700 : 400)) { endEscape(); return; }
+
+        if (escStage == 0) {
+            status = t("Bị kẹt: đào đường thoát", "Stuck: digging out");
+            if (!walker.active()) { escStage = 1; escTimer = 0; return; }
+            Walker.Result r = walker.tick(mc);
+            if (r == Walker.Result.DONE) endEscape();
+            else if (r == Walker.Result.FAILED) { walker.clear(); Motion.release(); escStage = 1; escTimer = 0; }
+            return;
+        }
+
+        // cách 2: dựng cột (nhảy + đặt block dưới chân), đập block chắn trên đầu nếu có
+        status = t("Bị kẹt: đặt block leo lên", "Stuck: pillaring up");
+        int climbed = p.getBlockY() - escStart.getY();
+        if (climbed >= 8 || (climbed >= 2 && w.isSkyVisible(p.getBlockPos().up()))) { endEscape(); return; }
+
+        BlockPos head = p.getBlockPos().up(2);
+        if (!Path.passable(w, head)) {
+            BlockState hs = w.getBlockState(head);
+            if (hs.getHardness(w, head) < 0 || !hs.getFluidState().isEmpty()) { endEscape(); return; }
+            Motion.jump(false);
+            Tools.selectTool(mc, hs, true);
+            Vec3d c = Vec3d.ofCenter(head);
+            if (!Motion.lookAt(p, c, cfg.turnSpeed())) return;
+            Vec3d e = p.getEyePos();
+            mc.interactionManager.updateBlockBreakingProgress(head, Direction.getFacing(e.x - c.x, e.y - c.y, e.z - c.z));
+            p.swingHand(Hand.MAIN_HAND);
+            return;
+        }
+
+        Item it = scaffoldItem(p);
+        if (it == null) { endEscape(); return; }
+        if (!Tools.hold(mc, p, it)) { Motion.jump(false); return; }
+        Motion.forward(false);
+        Motion.sneak(false);
+        Motion.turn(p, p.getYaw(), 90f, 90f);
+        BlockPos under = BlockPos.ofFloored(p.getX(), p.getY(), p.getZ()).down();
+        BlockPos sup = under.down();
+        if (w.getBlockState(under).isReplaceable() && Path.floorOk(w, sup) && p.getPitch() > 80f) {
+            Vec3d hv = Vec3d.ofCenter(sup).add(0, 0.5, 0);
+            var res = mc.interactionManager.interactBlock(p, Hand.MAIN_HAND, new BlockHitResult(hv, Direction.UP, sup, false));
+            if (res.isAccepted()) p.swingHand(Hand.MAIN_HAND);
+        }
+        Motion.jump(true);
     }
 
     private void mine(MinecraftClient mc) {
@@ -438,7 +604,7 @@ public final class AutoSand extends Task {
         if (target == null || cur == null) { phase = Phase.SEARCH; return; }
 
         if (!wanted.contains(w.getBlockState(cur).getBlock())) {       // block đã vỡ
-            if (breaking) { Stats.mined++; minedCount++; }
+            if (breaking) { Stats.mined++; minedCount++; failStreak = 0; noTarget = 0; }
             target = cur = null;
             area = List.of();
             Motion.release();

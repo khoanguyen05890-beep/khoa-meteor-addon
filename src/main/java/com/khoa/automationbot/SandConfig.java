@@ -8,7 +8,8 @@ public final class SandConfig {
     private static final SandConfig instance = new SandConfig();
     public static SandConfig get() { return instance; }
 
-    public int radius = 24;
+    public int radius = 64;
+    public int scanHeight = 16;                      // quét ±số block theo chiều cao quanh người chơi
     public boolean amethyst3x3 = true;
     public String shovelKeyword = "amethyst";
 

@@ -36,10 +36,18 @@ public class KhoaAutoSandBot extends KhoaModule {
 
     private final Setting<Integer> radius = sgGeneral.add(new IntSetting.Builder()
         .name("radius")
-        .description("Bán kính dò cát.")
-        .defaultValue(24)
+        .description("Bán kính dò cát theo chiều ngang (chỉ quét được phần chunk đã tải). Càng xa quét càng lâu.")
+        .defaultValue(64)
         .min(4)
-        .sliderMax(48)
+        .sliderMax(128)
+        .build());
+
+    private final Setting<Integer> scanHeight = sgGeneral.add(new IntSetting.Builder()
+        .name("scan-height")
+        .description("Quét ± số block theo chiều cao quanh người chơi.")
+        .defaultValue(16)
+        .min(2)
+        .sliderMax(64)
         .build());
 
     private final Setting<Boolean> amethyst3x3 = sgGeneral.add(new BoolSetting.Builder()
@@ -215,6 +223,8 @@ public class KhoaAutoSandBot extends KhoaModule {
         c.ignoreItems = new ArrayList<>();
         c.autoCollect = true;
         c.autoTool = true;
+        c.scaffoldItems = new ArrayList<>();               // block rác (cobblestone, dirt...) đều bị vứt; leo thì dùng cát
+        c.protectedItems = new java.util.HashSet<>(List.of("minecraft:experience_bottle"));
         c.itemRadius = itemRadius.get();
 
         // đói -> /shop -> thịt bò (icon danh mục) -> cà rốt vàng -> +64 -> xác nhận -> ăn
@@ -231,6 +241,7 @@ public class KhoaAutoSandBot extends KhoaModule {
 
         SandConfig s = SandConfig.get();
         s.radius = radius.get();
+        s.scanHeight = scanHeight.get();
         s.amethyst3x3 = amethyst3x3.get();
         s.shovelKeyword = shovelKeyword.get();
         s.keepMode = fullMode.get() == FullMode.KEEP_SHULKER;

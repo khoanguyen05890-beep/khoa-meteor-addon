@@ -17,6 +17,9 @@ import java.util.function.Predicate;
  */
 public final class BlockScanner {
     public int radius = 16;
+    public int maxRadius = 64;                     // giới hạn bán kính ngang
+    public int maxPerBlock = 4000;                 // số vị trí tối đa lưu cho mỗi loại block
+    public int idleWait = 10;                      // số tick nghỉ giữa hai chu kỳ quét
     public int budget = 2500;
     public boolean fullHeight;                     // quét từ minY tới maxY thay vì chỉ ±radius theo Y
     public int minY = -64, maxY = 320;
@@ -51,7 +54,7 @@ public final class BlockScanner {
         if (mc.world == null || mc.player == null) return;
         if (!running) {
             if (wait > 0) { wait--; return; }
-            int r = Math.max(2, Math.min(64, radius));
+            int r = Math.max(2, Math.min(maxRadius, radius));
             size = 2 * r + 1;
             wcenter = mc.player.getBlockPos();
             int height = size;
@@ -93,7 +96,7 @@ public final class BlockScanner {
             wc.merge(b, 1, Integer::sum);
             if (tracker != null && tracker.test(b)) {
                 List<BlockPos> l = wp.computeIfAbsent(b, k -> new ArrayList<>());
-                if (l.size() < 4000) l.add(m.toImmutable());
+                if (l.size() < maxPerBlock) l.add(m.toImmutable());
             }
         }
         if (cursor >= total) {
@@ -104,7 +107,7 @@ public final class BlockScanner {
             cycles++;
             cycleDone = true;
             running = false;
-            wait = 10;
+            wait = idleWait;
         }
     }
 }
