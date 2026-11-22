@@ -46,7 +46,7 @@ public final class Provision {
     private S s = S.START;
     private int life, timer, startCount, before, buys, clicks, confirmClicks, cmdSent;
     private int noGui, wait, itemClicks, addClicks, buyClicks, lastQty = -1, qtyStall, pageClicks, lastGain;
-    private int roomTries, roomDrops;
+    private int roomTries, roomDrops, gainAtCmd;
     private S afterRoom = S.START;
     private final Walker walker = new Walker();
     private final List<BlockPos> chests = new ArrayList<>();
@@ -117,7 +117,7 @@ public final class Provision {
         if (done) return false;
         ClientPlayerEntity p = mc.player;
         Config cfg = Config.get();
-        if (++life > 3000) { closeGui(p); fail("Quá thời gian", "Timed out"); return false; }
+        if (++life > 3000 + want * 40) { closeGui(p); fail("Quá thời gian", "Timed out"); return false; }
 
         switch (s) {
             case START -> {
@@ -445,6 +445,7 @@ public final class Provision {
         status = t("Mở /shop mua ", "Opening /shop to buy ") + item.getName().getString() + "...";
         GuiUtil.sendCommand(mc, cfg.shopCommand);
         cmdSent++;
+        gainAtCmd = gained(p);
         timer = 0;
         noGui = 0;
         wait = 0;
@@ -530,7 +531,7 @@ public final class Provision {
             // GUI đóng (server có thể đóng sau khi mua) -> mở lại /shop nếu còn thiếu
             if (++noGui > 30) {
                 noGui = 0;
-                if (cmdSent < 6 && (clicks > 0 || gain > 0)) { s = S.SHOP_CMD; return; }
+                if ((cmdSent < 6 || gain > gainAtCmd) && (clicks > 0 || gain > 0)) { s = S.SHOP_CMD; return; }   // server đóng GUI sau mỗi lần mua: mở lại khi vẫn đang có tiến triển
                 fail("/shop không mở được", "/shop did not open");
             }
             return;
@@ -538,7 +539,7 @@ public final class Provision {
         noGui = 0;
         if (wait > 0) { wait--; return; }               // chờ server cập nhật GUI sau mỗi lần bấm
         if (timer < 8) return;
-        if (clicks > 90) { closeGui(p); finish(gain > 0); return; }
+        if (clicks > 90 + want * 2) { closeGui(p); finish(gain > 0); return; }
 
         int n = GuiUtil.topCount(h);
         String tl = GuiUtil.title(mc).toLowerCase(Locale.ROOT);
@@ -547,30 +548,8 @@ public final class Provision {
         // ---- Trang mua: chỉnh số lượng rồi bấm kính xanh ----
         if (confirm >= 0) {
             itemClicks = 0;
-            int need = want - gain;
-            int qty = displayedQty(h, n);
-            status = t("Trang mua: bấm kính xanh để mua ", "Buy page: clicking green glass to buy ") + gain + "/" + want;
-            if (lastQty >= 0) { if (qty == lastQty) qtyStall++; else qtyStall = 0; }
-            if (qty < need && qty < 64 && addClicks < 10 && qtyStall < 2) {
-                int set = bestSetButton(h, n, confirm, Math.min(need, 64), qty);      // ưu tiên "Đặt thành N"
-                if (set >= 0) {
-                    lastQty = qty;
-                    addClicks++;
-                    GuiUtil.click(mc, h, set, 0, SlotActionType.PICKUP);
-                    clicks++;
-                    wait = 4;
-                    return;
-                }
-                int add = bestAddButton(h, n, confirm, Math.min(need, 64) - qty);
-                if (add >= 0) {
-                    lastQty = qty;
-                    addClicks++;
-                    GuiUtil.click(mc, h, add, 0, SlotActionType.PICKUP);
-                    clicks++;
-                    wait = 4;
-                    return;
-                }
-            }
+            // Không chỉnh số lượng: cứ bấm kính xanh xác nhận liên tục tới khi đủ `want` thì dừng
+            status = t("Trang mua: bấm xác nhận liên tục ", "Buy page: clicking confirm repeatedly ") + gain + "/" + want;
             if (buyClicks >= 5) {
                 closeGui(p);
                 fail("Bấm mua nhiều lần nhưng không nhận được hàng (đủ tiền chưa?)", "Clicked buy several times but got nothing (enough money?)");
@@ -579,10 +558,7 @@ public final class Provision {
             buyClicks++;
             GuiUtil.click(mc, h, confirm, 0, SlotActionType.PICKUP);   // kính xanh = MUA
             clicks++;
-            wait = 14;
-            addClicks = 0;
-            lastQty = -1;
-            qtyStall = 0;
+            wait = 6;
             return;
         }
 

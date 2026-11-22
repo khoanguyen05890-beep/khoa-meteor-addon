@@ -155,11 +155,11 @@ public class KhoaAutoSandBot extends KhoaModule {
         .build());
 
     private final Setting<Integer> expAmount = sgRepair.add(new IntSetting.Builder()
-        .name("exp-amount")
-        .description("Số chai exp mua mỗi lần (nút 'Đặt thành 64').")
-        .defaultValue(64)
+        .name("exp-stacks")
+        .description("Số stack (64 chai) exp mua mỗi lần: bấm xác nhận liên tục tới khi đủ.")
+        .defaultValue(2)
         .min(1)
-        .sliderMax(64)
+        .sliderMax(10)
         .build());
 
     // ---- đồ ăn ----
@@ -170,11 +170,11 @@ public class KhoaAutoSandBot extends KhoaModule {
         .build());
 
     private final Setting<Integer> foodBuyAmount = sgSurvival.add(new IntSetting.Builder()
-        .name("food-buy-amount")
-        .description("Số đồ ăn mua mỗi lần (nút 'Đặt thành 64').")
-        .defaultValue(64)
+        .name("food-buy-stacks")
+        .description("Số stack (64 cái) đồ ăn mua mỗi lần: bấm xác nhận liên tục tới khi đủ.")
+        .defaultValue(2)
         .min(1)
-        .sliderMax(64)
+        .sliderMax(10)
         .build());
 
     // ---- hiển thị ----
@@ -257,7 +257,7 @@ public class KhoaAutoSandBot extends KhoaModule {
         if (foodItem.get() != Items.GOLDEN_CARROT) kw.add(foodItem.get().getName().getString().toLowerCase());
         kw.addAll(c.foodKeywords);
         c.foodKeywords = kw;
-        c.foodAmount = foodBuyAmount.get();
+        c.foodAmount = foodBuyAmount.get() * 64;
 
         SandConfig s = SandConfig.get();
         s.radius = radius.get();
@@ -276,7 +276,7 @@ public class KhoaAutoSandBot extends KhoaModule {
         s.repairPercent = repairPercent.get();
         s.expCategory = new ArrayList<>(expCategory.get());
         s.expKeywords = new ArrayList<>(expKeywords.get());
-        s.expAmount = expAmount.get();
+        s.expAmount = expAmount.get() * 64;
     }
 
     @EventHandler

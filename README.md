@@ -1,7 +1,12 @@
-# KHOAMOXE — Meteor addon (Minecraft 1.21.11) — v2.5.7
+# KHOAMOXE — Meteor addon (Minecraft 1.21.11) — v2.5.8
 
 Cột **Khoa** trong ClickGUI: `khoa-auto-miner`, `khoa-auto-sand`, `khoa-item-collector`, `khoa-litematica-builder`.
 Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa chạy tại một thời điểm.
+
+## Sửa 2.5.8 — mua /shop: bấm xác nhận liên tục tới khi đủ 2 stack
+- Bỏ bước chỉnh số lượng ("Đặt thành 64" / "+ Thêm"). Vào trang mua là bấm **kính xanh xác nhận** liên tục tới khi đủ số lượng thì dừng.
+- Đồ ăn và exp: cài đặt mới `food-buy-stacks` và `exp-stacks` (mặc định **2 stack** = 128). Server đóng GUI sau mỗi lần mua thì bot tự mở lại `/shop` miễn là vẫn nhận được hàng.
+- Shulker / ender chest vẫn mua 1 cái.
 
 ## Sửa 2.5.7 — mua ở /shop bằng nút "Đặt thành N"
 - Trang mua: bot bấm nút **"Đặt thành 64"** (đặt thẳng số lượng, `Set to 64` cũng nhận) rồi bấm kính xanh xác nhận. Không có nút này mới quay lại bấm "+ Thêm N". Nút "Đặt thành" không bao giờ bị nhầm là nút mua.
