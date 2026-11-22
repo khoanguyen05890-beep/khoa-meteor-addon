@@ -38,6 +38,10 @@ public final class Provision {
     private final Item item;
     private final int want;
     private final boolean food;
+    // shop tổng quát (shulker, ender chest, exp...): danh mục + từ khoá món + so khớp item tuỳ biến
+    private boolean shop;
+    private List<String> catKeys, itemKeys;
+    private java.util.function.Predicate<Item> matcher;
 
     private S s = S.START;
     private int life, timer, startCount, before, buys, clicks, confirmClicks, cmdSent;
@@ -59,7 +63,38 @@ public final class Provision {
     public static Provision item(Item it, int amount) { return new Provision(it, amount, false); }
     public static Provision food(Item it, int amount) { return new Provision(it, amount, true); }
 
-    private int gained(ClientPlayerEntity p) { return Tools.count(p, item) - startCount; }
+    /**
+     * Mua 1 món bất kỳ ở /shop: /shop -> bấm danh mục (catKeys) -> bấm món (itemKeys) -> bấm "+ Thêm N" -> bấm kính xanh.
+     * matcher (có thể null) cho phép coi nhiều item là "món cần mua" (vd mọi màu shulker box).
+     */
+    public static Provision shop(Item it, java.util.function.Predicate<Item> matcher, int amount,
+                                 List<String> catKeys, List<String> itemKeys) {
+        Provision p = new Provision(it, amount, false);
+        p.shop = true;
+        p.matcher = matcher;
+        p.catKeys = catKeys;
+        p.itemKeys = itemKeys;
+        return p;
+    }
+
+    private boolean matches(ItemStack st) {
+        return !st.isEmpty() && (matcher != null ? matcher.test(st.getItem()) : st.getItem() == item);
+    }
+
+    private int cnt(ClientPlayerEntity p) {
+        if (matcher == null) return Tools.count(p, item);
+        int n = 0;
+        for (int i = 0; i < 36; i++) {
+            ItemStack s = p.getInventory().getStack(i);
+            if (!s.isEmpty() && matcher.test(s.getItem())) n += s.getCount();
+        }
+        return n;
+    }
+
+    private List<String> catKeywords() { return catKeys != null ? catKeys : Config.get().categoryKeywords; }
+    private List<String> itemKeywords() { return itemKeys != null ? itemKeys : Config.get().foodKeywords; }
+
+    private int gained(ClientPlayerEntity p) { return cnt(p) - startCount; }
 
     private void finish(boolean ok) {
         done = true;
@@ -86,8 +121,8 @@ public final class Provision {
 
         switch (s) {
             case START -> {
-                startCount = Tools.count(p, item);
-                if (food) { s = S.SHOP_CMD; break; }
+                startCount = cnt(p);
+                if (food || shop) { s = S.SHOP_CMD; break; }
                 if (cfg.useStorage) { findChests(mc); s = S.PICK_CHEST; }
                 else afterStorage();
             }
@@ -380,7 +415,7 @@ public final class Provision {
         if (cfg.shopCommand == null || cfg.shopCommand.isBlank()) { fail("Chưa đặt lệnh shop", "No shop command set"); return; }
         if (GuiUtil.open(p) != null) { closeGui(p); return; }
         if (roomFirst(p, S.SHOP_CMD)) return;
-        status = t("Mở /shop mua đồ ăn...", "Opening /shop to buy food...");
+        status = t("Mở /shop mua ", "Opening /shop to buy ") + item.getName().getString() + "...";
         GuiUtil.sendCommand(mc, cfg.shopCommand);
         cmdSent++;
         timer = 0;
@@ -416,7 +451,7 @@ public final class Provision {
         boolean seen = false;
         for (int i = 0; i < n; i++) {
             ItemStack st = h.slots.get(i).getStack();
-            if (!st.isEmpty() && st.getItem() == item) { q = seen ? Math.max(q, st.getCount()) : st.getCount(); seen = true; }
+            if (matches(st)) { q = seen ? Math.max(q, st.getCount()) : st.getCount(); seen = true; }
         }
         return q;
     }
@@ -501,8 +536,8 @@ public final class Provision {
         status = t("Đang tìm đồ ăn trong /shop ", "Looking for food in /shop ") + gain + "/" + want;
 
         // ---- Đang ở danh mục: bấm vào món cần mua (mở trang mua) ----
-        int slot = findSlot(h, st -> st.getItem() == item);
-        if (slot < 0) slot = findSlot(h, st -> GuiUtil.nameMatches(st, cfg.foodKeywords));
+        int slot = findSlot(h, this::matches);
+        if (slot < 0) slot = findSlot(h, st -> GuiUtil.nameMatches(st, itemKeywords()));
         if (slot >= 0) {
             if (++itemClicks > 8) {
                 closeGui(p);
@@ -518,9 +553,9 @@ public final class Provision {
         // ---- Menu chính: chọn danh mục FOOD (theo tên, rồi theo icon là đồ ăn) ----
         boolean inCategory = tl.contains("->") || tl.contains("»") || tl.contains(">");
         if (!inCategory) {
-            slot = findSlot(h, st -> GuiUtil.nameMatches(st, cfg.categoryKeywords) && !clickedCategories.contains(GuiUtil.name(st)));
+            slot = findSlot(h, st -> GuiUtil.nameMatches(st, catKeywords()) && !clickedCategories.contains(GuiUtil.name(st)));
             if (slot < 0) {
-                slot = findSlot(h, st -> st.get(DataComponentTypes.FOOD) != null
+                slot = !food ? -1 : findSlot(h, st -> st.get(DataComponentTypes.FOOD) != null
                         && !clickedCategories.contains("#" + Tools.itemId(st.getItem())));
                 if (slot >= 0) clickedCategories.add("#" + Tools.itemId(h.slots.get(slot).getStack().getItem()));
             } else {
@@ -549,6 +584,6 @@ public final class Provision {
             }
         }
         closeGui(p);
-        fail("Không thấy thịt bò nướng trong /shop", "Cooked beef not found in /shop");
+        fail("Không thấy " + item.getName().getString() + " trong /shop", item.getName().getString() + " not found in /shop");
     }
 }

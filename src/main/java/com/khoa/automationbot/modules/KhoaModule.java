@@ -131,6 +131,9 @@ public abstract class KhoaModule extends Module {
 
     protected boolean pausedByUser() { return false; }
 
+    /** true = task đang làm việc quan trọng (bán/cất/sửa đồ): đói thì để sau, trừ khi đã đang đi mua đồ ăn. */
+    protected boolean deferHunger() { return false; }
+
     @Override
     public void onActivate() {
         if (running != null && running != this && running.isActive()) {
@@ -171,7 +174,7 @@ public abstract class KhoaModule extends Module {
         applyConfig(Config.get());
 
         // Đói: ăn / đi mua đồ ăn trước, task chính tạm nhường
-        if (hunger.tick(mc)) return;
+        if ((hunger.active() || !deferHunger()) && hunger.tick(mc)) return;
 
         // An toàn: tạm dừng khi sắp chết
         if (!mc.player.isAlive() || mc.player.getHealth() <= 4f) {

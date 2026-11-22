@@ -3,7 +3,7 @@
   "id": "khoa-automation-bot",
   "version": "${version}",
   "name": "KHOA AUTOMATION BOT",
-  "description": "Meteor addon: Auto Miner, Item Collector, Litematica Builder.",
+  "description": "Meteor addon: Auto Miner, Auto Sand Bot, Item Collector, Litematica Builder.",
   "authors": ["Khoa"],
   "license": "MIT",
   "environment": "client",

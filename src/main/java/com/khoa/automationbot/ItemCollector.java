@@ -21,6 +21,8 @@ public final class ItemCollector extends Task {
     private final Set<Integer> bad = new HashSet<>();
     private int retarget, waitNear, dropCooldown;
     public boolean full;
+    /** true = nhặt mọi thứ (kể cả đồ nằm ngoài danh sách), vd shulker/ender chest vừa đập. */
+    public boolean pickAll;
 
     @Override public String name() { return "Item Collector"; }
 
@@ -39,6 +41,7 @@ public final class ItemCollector extends Task {
     }
 
     private boolean wanted(ItemEntity e) {
+        if (pickAll) return true;
         Config c = Config.get();
         String id = Tools.itemId(e.getStack().getItem());
         if (c.ignoreItems.contains(id)) return false;

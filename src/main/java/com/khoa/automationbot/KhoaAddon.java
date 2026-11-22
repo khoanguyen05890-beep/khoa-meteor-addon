@@ -1,6 +1,7 @@
 package com.khoa.automationbot;
 
 import com.khoa.automationbot.modules.KhoaAutoMiner;
+import com.khoa.automationbot.modules.KhoaAutoSandBot;
 import com.khoa.automationbot.modules.KhoaItemCollector;
 import com.khoa.automationbot.modules.KhoaLitematicaBuilder;
 import meteordevelopment.meteorclient.addons.MeteorAddon;
@@ -17,6 +18,7 @@ public class KhoaAddon extends MeteorAddon {
     public void onInitialize() {
         LOG.info("KHOA AUTOMATION BOT (Meteor addon) loaded");
         Modules.get().add(new KhoaAutoMiner());
+        Modules.get().add(new KhoaAutoSandBot());
         Modules.get().add(new KhoaItemCollector());
         Modules.get().add(new KhoaLitematicaBuilder());
     }

@@ -27,6 +27,9 @@ public final class Walker {
     public void clear() { path = List.of(); idx = 0; stuck = 0; digTicks = 0; last = null; dig = false; }
     public boolean active() { return idx < path.size(); }
 
+    /** Các ô còn lại của đường đi (để vẽ "sợi chỉ"). */
+    public List<BlockPos> remaining() { return idx < path.size() ? path.subList(idx, path.size()) : List.of(); }
+
     private void stopKeys() { Motion.forward(false); Motion.jump(false); }
 
     /** null = không còn gì phải đào; RUNNING = đang đào; FAILED = không đào được. */

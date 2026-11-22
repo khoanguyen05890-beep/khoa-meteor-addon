@@ -1,7 +1,18 @@
-# KHOA AUTOMATION BOT — Meteor addon (Minecraft 1.21.11) — v2.3.1
+# KHOA AUTOMATION BOT — Meteor addon (Minecraft 1.21.11) — v2.5.0
 
-Cột **Khoa** trong ClickGUI: `khoa-auto-miner`, `khoa-item-collector`, `khoa-litematica-builder`.
+Cột **Khoa** trong ClickGUI: `khoa-auto-miner`, `khoa-auto-sand`, `khoa-item-collector`, `khoa-litematica-builder`.
 Chuột trái = bật/tắt, chuột phải = settings. Chỉ một module Khoa chạy tại một thời điểm.
+
+## Mới ở 2.5.0 — Auto Sand Bot (`khoa-auto-sand`)
+- **Dò cát + đào tự động**: quét cát/cát đỏ quanh bạn (`radius`), đi tới, đào, nhặt. Cát đè lên đầu thì đào ngay để khỏi ngạt; không đào cát ngay dưới chân; tránh chỗ sát dung nham.
+- **Xẻng tên có "amethyst" (`amethyst-3x3`, `shovel-keyword`)**: cầm xẻng đó và chọn chỗ đào có NHIỀU cát nhất trong vùng 3x3 (đi xa hơn một chút cho chỗ đầy cát). Khung 3x3 hiển thị theo mặt block bot đang đập.
+- **Hiển thị (Render)**: *sợi chỉ* từ người chơi qua các ô đường đi tới block đang đào (`render-thread`) và *khung sáng* quanh block đang đào + vùng 3x3 (`render-box`); chỉnh màu trong nhóm Render.
+- **Đầy kho** (`full-mode`, còn < `reserve-slots` ô trống và có >= 64 cát; trước hết quăng đồ thừa):
+  - `SELL_ORDER`: `/order sand` -> chọn đơn **giá cao nhất** -> shift-click bỏ cát vào -> đóng GUI (ESC) -> bấm kính xanh xác nhận.
+  - `KEEP_SHULKER` (giữ cát): thiếu thì `/shop` -> danh mục End Stone -> shulker -> xác nhận, rồi ender chest -> xác nhận; đặt ender chest, đặt shulker, mở shulker, bỏ hết cát vào, **đập shulker (auto tool)**, nhặt lại, mở ender chest, bỏ shulker vào, rồi đập ender chest lấy lại (`pickup-ender-chest`).
+- **Đói**: `/shop` -> bấm danh mục thịt bò -> **cà rốt vàng** -> `+64` -> xác nhận -> ăn (`food-item`, `food-buy-amount`). Hết chỗ trống thì quăng bớt đồ thừa rồi mua.
+- **Xẻng sắp hỏng** (`auto-repair`, `repair-percent`): `/shop` -> danh mục totem -> exp -> `+64` -> xác nhận; đưa xẻng sang tay phụ, cầm chai exp, nhìn xuống đất ném tới khi xẻng gần đầy độ bền (cần **Mending**), rồi trả xẻng về chỗ cũ. Xẻng không có Mending thì bot báo và không sửa.
+- Tên danh mục / món trong `/shop` là từ khoá chỉnh được (`end-category`, `exp-category`, `exp-keywords`) nếu server đặt tên khác.
 
 ## Mới ở 2.4.0 (Litematica Builder)
 - **temp-support**: block lơ lửng không có chỗ tựa thì bot tự đặt block tựa tạm (dây block tạm nối từ chỗ đã có tựa tới đích, tối đa 5 bước, chỉ đặt ở ô schematic để trống), đặt block thật rồi đập block tạm. Không còn bỏ cả layer vì "chờ điểm tựa".
